@@ -1,24 +1,28 @@
 package com.smartretail.backend.models;
 
 import lombok.Data;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Positive;
-import jakarta.validation.constraints.Size;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.index.Indexed;
+import org.springframework.data.mongodb.core.mapping.Document;
+import org.springframework.data.mongodb.core.mapping.Field;
+
+import java.util.Date;
 
 @Data
+@Document(collection = "products")
 public class Product {
-    private String productId;
-
-    @NotBlank(message = "Name is required")
-    @Size(min = 2, max = 100, message = "Name must be between 2 and 100 characters")
+    @Id
+    private String id; // Maps to _id
+    @Indexed(unique = true)
+    private String productId; // Unique 4-digit ID (e.g., "1001")
     private String name;
-
-    @Size(max = 500, message = "Description cannot exceed 500 characters")
-    private String description;
-
-    @Positive(message = "Price must be positive")
+    private String category;
     private double price;
-
-    @Positive(message = "Quantity must be positive")
     private int quantity;
+    private int minQuantity;
+    private Date expiryDate; // Optional (nullable)
+    private String imageUrl; // Optional (nullable)
+    @Field("addedBy") // Maps to addedBy (ObjectId in MongoDB)
+    private String addedBy; // References users._id
+    private Date lastUpdated;
 }
