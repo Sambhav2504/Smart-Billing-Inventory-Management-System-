@@ -2,7 +2,8 @@ package com.smartretail.backend.controller;
 
 import com.smartretail.backend.dto.ProductRequest;
 import com.smartretail.backend.service.ProductService;
-import org.springframework.beans.factory.annotation.Autowired;
+import jakarta.validation.Valid;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -10,39 +11,48 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/products")
 public class ProductController {
+    private final ProductService productService;
 
-    // Spring will automatically inject the ProductService implementation here
-    @Autowired
-    private ProductService productService;
+    public ProductController(ProductService productService) {
+        this.productService = productService;
+    }
 
     @GetMapping
-    public List<ProductRequest> getAllProducts() {
-        return productService.getAllProducts(); // Delegate the work to the service
+    public ResponseEntity<List<ProductRequest>> getAllProducts() {
+        List<ProductRequest> products = productService.getAllProducts();
+        return ResponseEntity.ok(products);
     }
 
     @GetMapping("/{id}")
-    public ProductRequest getProductById(@PathVariable String id) {
-        return productService.getProductById(id); // Delegate the work to the service
+    public ResponseEntity<ProductRequest> getProductById(@PathVariable String id) {
+        ProductRequest product = productService.getProductById(id);
+        if (product == null) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(product);
     }
 
     @PostMapping
-    public String createProduct(@RequestBody ProductRequest productRequest) {
-        return productService.createProduct(productRequest); // Delegate the work to the service
+    public ResponseEntity<String> createProduct(@Valid @RequestBody ProductRequest productRequest) {
+        String result = productService.createProduct(productRequest);
+        return ResponseEntity.status(201).body(result);
     }
 
     @PutMapping("/{id}")
-    public String updateProduct(@PathVariable String id, @RequestBody ProductRequest updateData) {
-        return productService.updateProduct(id, updateData); // Delegate the work to the service
+    public ResponseEntity<String> updateProduct(@PathVariable String id, @Valid @RequestBody ProductRequest updateData) {
+        String result = productService.updateProduct(id, updateData);
+        if (result.contains("Error")) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(result);
     }
 
     @DeleteMapping("/{id}")
-    public String deleteProduct(@PathVariable String id) {
-        return productService.deleteProduct(id); // Delegate the work to the service
-    }
-
-    // Keep the debug endpoint for now, also delegated to the service
-    @GetMapping("/debug")
-    public List<ProductRequest> debugGetAllProducts() {
-        return productService.getAllProducts();
+    public ResponseEntity<String> deleteProduct(@PathVariable String id) {
+        String result = productService.deleteProduct(id);
+        if (result.contains("Error")) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(result);
     }
 }
