@@ -6,10 +6,8 @@ import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
-
 @RestController
-@RequestMapping("/api/bills")
+@RequestMapping("/api/billing")
 public class BillController {
     private final BillService billService;
 
@@ -23,18 +21,9 @@ public class BillController {
         return ResponseEntity.status(201).body(savedBill);
     }
 
-    @GetMapping("/{billId}")
-    public ResponseEntity<Bill> getBillById(@PathVariable String billId) {
+    @GetMapping("/{id}")
+    public ResponseEntity<Bill> getBillById(@PathVariable("id") String billId) {
         Bill bill = billService.getBillById(billId);
-        if (bill == null) {
-            return ResponseEntity.notFound().build();
-        }
         return ResponseEntity.ok(bill);
-    }
-
-    @GetMapping
-    public ResponseEntity<List<Bill>> getAllBills() {
-        List<Bill> bills = billService.getAllBills();
-        return ResponseEntity.ok(bills);
     }
 }
