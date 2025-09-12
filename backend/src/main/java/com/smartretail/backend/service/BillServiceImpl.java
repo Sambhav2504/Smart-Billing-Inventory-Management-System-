@@ -10,6 +10,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Date;
+import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -17,11 +19,13 @@ public class BillServiceImpl implements BillService {
     private final BillRepository billRepository;
     private final ProductRepository productRepository;
     private final CustomerRepository customerRepository;
+    private final NotificationService notificationService;
 
-    public BillServiceImpl(BillRepository billRepository, ProductRepository productRepository, CustomerRepository customerRepository) {
+    public BillServiceImpl(BillRepository billRepository, ProductRepository productRepository, CustomerRepository customerRepository, NotificationService notificationService) {
         this.billRepository = billRepository;
         this.productRepository = productRepository;
         this.customerRepository = customerRepository;
+        this.notificationService = notificationService;
     }
 
     @Override
@@ -60,17 +64,34 @@ public class BillServiceImpl implements BillService {
 
         Bill savedBill = billRepository.save(bill);
         System.out.println("[SERVICE] Bill created successfully. ID: " + savedBill.getBillId());
+
+        // Link bill to customer's purchase history
+        customer.addBillId(savedBill.getBillId());
+        customerRepository.save(customer);
+
+        // Send email notification
+        notificationService.sendBillNotification(
+                customer.getEmail(),
+                savedBill.getBillId(),
+                savedBill.getTotal()
+        );
+
         return savedBill;
     }
 
     @Override
     public Bill getBillById(String billId) {
         System.out.println("[SERVICE] Fetching bill with ID: " + billId);
-        Bill bill = billRepository.findByBillId(billId);
-        if (bill == null) {
-            System.out.println("[SERVICE] Bill not found for ID: " + billId);
-            throw new RuntimeException("Bill not found");
-        }
-        return bill;
+        return billRepository.findByBillId(billId)
+                .orElseThrow(() -> {
+                    System.out.println("[SERVICE] Bill not found for ID: " + billId);
+                    return new RuntimeException("Bill not found: " + billId);
+                });
+    }
+
+    @Override
+    public List<Bill> getAllBills() {
+        System.out.println("[SERVICE] Fetching all bills");
+        return billRepository.findAll();
     }
 }

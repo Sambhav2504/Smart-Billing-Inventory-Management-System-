@@ -3,9 +3,11 @@ package com.smartretail.backend.service;
 import com.smartretail.backend.models.Customer;
 import com.smartretail.backend.repository.CustomerRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Date;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 public class CustomerServiceImpl implements CustomerService {
@@ -16,6 +18,7 @@ public class CustomerServiceImpl implements CustomerService {
     }
 
     @Override
+    @Transactional
     public Customer createCustomer(Customer customer) {
         System.out.println("[SERVICE] Creating customer: " + customer.getName());
         if (customer.getMobile() != null && customerRepository.existsByMobile(customer.getMobile())) {
@@ -31,7 +34,8 @@ public class CustomerServiceImpl implements CustomerService {
     @Override
     public Customer getCustomerByMobile(String mobile) {
         System.out.println("[SERVICE] Fetching customer with mobile: " + mobile);
-        return customerRepository.findByMobile(mobile).orElse(null);
+        Optional<Customer> optionalCustomer = customerRepository.findByMobile(mobile);
+        return optionalCustomer.orElse(null);
     }
 
     @Override
@@ -41,6 +45,7 @@ public class CustomerServiceImpl implements CustomerService {
     }
 
     @Override
+    @Transactional
     public Customer updateCustomer(String id, Customer updateData) {
         System.out.println("[SERVICE] Updating customer ID: " + id);
         Customer customer = customerRepository.findById(id)
@@ -64,6 +69,7 @@ public class CustomerServiceImpl implements CustomerService {
     }
 
     @Override
+    @Transactional
     public void deleteCustomer(String id) {
         System.out.println("[SERVICE] Deleting customer ID: " + id);
         if (!customerRepository.existsById(id)) {
@@ -72,5 +78,13 @@ public class CustomerServiceImpl implements CustomerService {
         }
         customerRepository.deleteById(id);
         System.out.println("[SERVICE] Customer deleted successfully.");
+    }
+
+    @Override
+    public List<String> getCustomerPurchaseHistory(String customerId) {
+        System.out.println("[SERVICE] Fetching purchase history for customer ID: " + customerId);
+        Customer customer = customerRepository.findById(customerId)
+                .orElseThrow(() -> new RuntimeException("Customer not found"));
+        return customer.getPurchaseHistory();
     }
 }

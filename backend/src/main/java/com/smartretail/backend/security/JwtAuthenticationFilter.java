@@ -1,5 +1,6 @@
 package com.smartretail.backend.security;
 
+import com.smartretail.backend.models.User;
 import com.smartretail.backend.service.AuthService;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
@@ -15,6 +16,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.util.Collections;
+import java.util.Optional;
 
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
@@ -45,15 +47,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         if (email != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-            var user = authService.getUserByEmail(email);
-            if (user != null) {
+            Optional<User> optionalUser = Optional.ofNullable(authService.getUserByEmail(email));
+            if (optionalUser.isPresent()) {
+                User user = optionalUser.get();
+                String role = "ROLE_" + user.getRole();
                 UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
                         email,
                         null,
-                        Collections.singletonList(new SimpleGrantedAuthority("ROLE_" + user.getRole()))
+                        Collections.singletonList(new SimpleGrantedAuthority(role))
                 );
                 authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                 SecurityContextHolder.getContext().setAuthentication(authToken);
+                System.out.println("[JWT] Authentication set for user: " + email + " with Spring role: " + role);
             }
         }
 

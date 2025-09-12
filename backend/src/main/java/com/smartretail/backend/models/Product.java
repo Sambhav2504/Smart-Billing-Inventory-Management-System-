@@ -1,28 +1,44 @@
 package com.smartretail.backend.models;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
 import org.springframework.data.annotation.Id;
-import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
-import org.springframework.data.mongodb.core.mapping.Field;
 
 import java.util.Date;
 
-@Data
+@Setter
+@Getter
 @Document(collection = "products")
 public class Product {
+    // Getters and Setters
     @Id
-    private String id; // Maps to _id
-    @Indexed(unique = true)
-    private String productId; // Unique 4-digit ID (e.g., "1001")
+    private String productId;
     private String name;
     private String category;
     private double price;
     private int quantity;
     private int minQuantity;
-    private Date expiryDate; // Optional (nullable)
-    private String imageUrl; // Optional (nullable)
-    @Field("addedBy") // Maps to addedBy (ObjectId in MongoDB)
-    private String addedBy; // References users._id
+    private int reorderLevel;
+    private Date expiryDate;
+    private String addedBy;
     private Date lastUpdated;
+
+    // Constructors
+    public Product() {}
+
+    public Product(String productId, String name, String category, double price, int quantity,
+                   int minQuantity, int reorderLevel, Date expiryDate, String addedBy, Date lastUpdated) {
+        this.productId = productId;
+        this.name = name;
+        this.category = category;
+        this.price = price;
+        this.quantity = quantity;
+        this.minQuantity = minQuantity;
+        this.reorderLevel = reorderLevel;
+        this.expiryDate = expiryDate;
+        this.addedBy = addedBy;
+        this.lastUpdated = lastUpdated;
+    }
+
 }

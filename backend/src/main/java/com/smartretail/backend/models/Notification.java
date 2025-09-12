@@ -1,29 +1,31 @@
 package com.smartretail.backend.models;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
-import org.springframework.data.mongodb.core.mapping.Field;
 
 import java.util.Date;
 
-@Data
+@Setter
+@Getter
 @Document(collection = "notifications")
 public class Notification {
     @Id
-    private String id; // Maps to _id
-    private String type; // "EMAIL", "SMS", "WHATSAPP"
-    private String to; // Recipient address/number
-    private String subject; // Nullable
-    private String body;
-    private String status; // "SENT", "FAILED"
-    @Field("relatedTo")
-    private RelatedTo relatedTo;
+    private String id;
+    private String to;       // Email address
+    private String subject;
+    private String message;
     private Date sentAt;
 
-    @Data
-    public static class RelatedTo {
-        private String type; // e.g., "BILL"
-        private String id; // References _id of related document
+    // Default constructor
+    public Notification() {}
+
+    // Constructor
+    public Notification(String to, String subject, String message, Date sentAt) {
+        this.to = to;
+        this.subject = subject;
+        this.message = message;
+        this.sentAt = sentAt;
     }
 }
