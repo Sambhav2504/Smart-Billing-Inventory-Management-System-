@@ -12,7 +12,7 @@ target/
 .settings
 .springBeans
 .sts4-cache
-application.properties
+.idea/runConfigurations/
 ### IntelliJ IDEA ###
 .idea
 *.iws
