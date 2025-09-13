@@ -21,6 +21,7 @@ public class Product {
     private int minQuantity;
     private int reorderLevel;
     private Date expiryDate;
+    private String imageId; // GridFS ID for image
     private String addedBy;
     private Date lastUpdated;
 
@@ -28,7 +29,7 @@ public class Product {
     public Product() {}
 
     public Product(String productId, String name, String category, double price, int quantity,
-                   int minQuantity, int reorderLevel, Date expiryDate, String addedBy, Date lastUpdated) {
+                   int minQuantity, int reorderLevel, Date expiryDate, String imageId, String addedBy, Date lastUpdated) {
         this.productId = productId;
         this.name = name;
         this.category = category;
@@ -37,6 +38,7 @@ public class Product {
         this.minQuantity = minQuantity;
         this.reorderLevel = reorderLevel;
         this.expiryDate = expiryDate;
+        this.imageId = imageId;
         this.addedBy = addedBy;
         this.lastUpdated = lastUpdated;
     }

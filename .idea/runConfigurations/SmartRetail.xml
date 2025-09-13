@@ -1,0 +1,17 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="SmartRetail" type="Application" factoryName="Application">
+    <option name="ALTERNATIVE_JRE_PATH" value="22" />
+    <option name="ALTERNATIVE_JRE_PATH_ENABLED" value="true" />
+    <envs>
+      <env name="JWT_SECRET" value="7a3f8b2c5d9e1f4a6b8c0d2e5f7a3b9c1d4e6f8a2b5c7d9e0f1a3b5c7d9e1f2a4b6c8d0e2f4a7b9c1d3e5f7a9b1c3d5e7f9a2b4c6d8e0f2a4b6c8d0e2f4a6b8c0d2e4" />
+      <env name="MAIL_PASSWORD" value="pfrwmeceypstjgbd" />
+      <env name="MAIL_USERNAME" value="rohan.k97532@gmail.com" />
+      <env name="MONGODB_URI" value="mongodb+srv://admin:SuperS3cr3tPassword@cluster0.xo5fnfx.mongodb.net/smartretail?retryWrites=true&amp;w=majority&amp;appName=Cluster0" />
+    </envs>
+    <option name="MAIN_CLASS_NAME" value="com.smartretail.backend.BackendApplication" />
+    <module name="backend" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

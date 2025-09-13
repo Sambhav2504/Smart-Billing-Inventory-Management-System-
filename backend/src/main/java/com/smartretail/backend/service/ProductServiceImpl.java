@@ -4,19 +4,26 @@ import com.smartretail.backend.models.Product;
 import com.smartretail.backend.repository.ProductRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.util.Date;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
 public class ProductServiceImpl implements ProductService {
     private final ProductRepository productRepository;
     private final NotificationService notificationService;
+    private final FileService fileService;
 
-    public ProductServiceImpl(ProductRepository productRepository, NotificationService notificationService) {
+    public ProductServiceImpl(ProductRepository productRepository,
+                              NotificationService notificationService,
+                              FileService fileService) {
         this.productRepository = productRepository;
         this.notificationService = notificationService;
+        this.fileService = fileService;
     }
 
     @Override
@@ -34,6 +41,74 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
+    public Product updateProduct(String productId, Product product) {
+        try {
+            return updateProduct(productId, product, null);
+        } catch (IOException e) {
+            // should not happen because imageFile is null; wrap as runtime
+            throw new RuntimeException("Failed to update product", e);
+        }
+    }
+
+    @Override
+    public Product updateProduct(String productId, Product product, MultipartFile imageFile) throws IOException {
+        Optional<Product> existingProductOpt = productRepository.findByProductId(productId);
+
+        if (existingProductOpt.isEmpty()) {
+            throw new RuntimeException("Product not found with ID: " + productId);
+        }
+
+        Product existingProduct = existingProductOpt.get();
+
+        // Update fields if provided in the request
+        if (product.getName() != null) {
+            existingProduct.setName(product.getName());
+        }
+        if (product.getCategory() != null) {
+            existingProduct.setCategory(product.getCategory());
+        }
+        if (product.getPrice() > 0) {
+            existingProduct.setPrice(product.getPrice());
+        }
+        if (product.getQuantity() >= 0) {
+            existingProduct.setQuantity(product.getQuantity());
+            // low-stock check after manual update
+            if (existingProduct.getQuantity() < existingProduct.getReorderLevel()) {
+                notificationService.sendLowStockNotification(
+                        "manager@shop.com",
+                        existingProduct.getName(),
+                        existingProduct.getQuantity(),
+                        existingProduct.getReorderLevel()
+                );
+            }
+        }
+        if (product.getReorderLevel() >= 0) {
+            existingProduct.setReorderLevel(product.getReorderLevel());
+        }
+        if (product.getExpiryDate() != null) {
+            existingProduct.setExpiryDate(product.getExpiryDate());
+        }
+
+        // Handle image upload if provided
+        if (imageFile != null && !imageFile.isEmpty()) {
+            String imageId = fileService.uploadImage(imageFile, "product_" + productId);
+            existingProduct.setImageId(imageId);
+        } else if (product.getImageId() != null) {
+            // If client intentionally sets imageId to empty string -> remove image
+            if (product.getImageId().isEmpty()) {
+                existingProduct.setImageId(null);
+            } else {
+                // if non-empty imageId provided in body, set it (rare case)
+                existingProduct.setImageId(product.getImageId());
+            }
+        }
+
+        existingProduct.setLastUpdated(new Date());
+
+        return productRepository.save(existingProduct);
+    }
+
+    @Override
     public Product getProductById(String productId) {
         System.out.println("[SERVICE] Fetching product with ID: " + productId);
         return productRepository.findByProductId(productId)
@@ -47,39 +122,6 @@ public class ProductServiceImpl implements ProductService {
     public List<Product> getAllProducts() {
         System.out.println("[SERVICE] Fetching all products.");
         return productRepository.findAll();
-    }
-
-    @Override
-    @Transactional
-    public Product updateProduct(String productId, Product updateData) {
-        System.out.println("[SERVICE] Updating product ID: " + productId);
-        Product product = productRepository.findByProductId(productId)
-                .orElseThrow(() -> {
-                    System.out.println("[SERVICE] Update failed: Product not found for ID: " + productId);
-                    return new RuntimeException("Product not found");
-                });
-        if (updateData.getName() != null) product.setName(updateData.getName());
-        if (updateData.getCategory() != null) product.setCategory(updateData.getCategory());
-        if (updateData.getPrice() > 0) product.setPrice(updateData.getPrice());
-        if (updateData.getQuantity() >= 0) {
-            product.setQuantity(updateData.getQuantity());
-            // Check low stock after update
-            if (product.getQuantity() < product.getReorderLevel()) {
-                notificationService.sendLowStockNotification(
-                        "manager@shop.com",
-                        product.getName(),
-                        product.getQuantity(),
-                        product.getReorderLevel()
-                );
-            }
-        }
-        if (updateData.getMinQuantity() >= 0) product.setMinQuantity(updateData.getMinQuantity());
-        if (updateData.getReorderLevel() >= 0) product.setReorderLevel(updateData.getReorderLevel());
-        if (updateData.getExpiryDate() != null) product.setExpiryDate(updateData.getExpiryDate());
-        product.setLastUpdated(new Date());
-        Product updatedProduct = productRepository.save(product);
-        System.out.println("[SERVICE] Product updated successfully: " + updatedProduct.getProductId());
-        return updatedProduct;
     }
 
     @Override
