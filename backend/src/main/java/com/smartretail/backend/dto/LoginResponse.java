@@ -1,18 +1,18 @@
 package com.smartretail.backend.dto;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
 
-@Data
+@Setter
+@Getter
 public class LoginResponse {
-    private String token;
-    private String userId;
-    private String name;
-    private String role;
+    // Getters and Setters
+    private String accessToken;
+    private String refreshToken;
 
-    public LoginResponse(String token, String userId, String name, String role) {
-        this.token = token;
-        this.userId = userId;
-        this.name = name;
-        this.role = role;
+    public LoginResponse(String accessToken, String refreshToken) {
+        this.accessToken = accessToken;
+        this.refreshToken = refreshToken;
     }
+
 }

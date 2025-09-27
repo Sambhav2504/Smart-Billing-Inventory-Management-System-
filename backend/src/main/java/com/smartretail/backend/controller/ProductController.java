@@ -1,132 +1,186 @@
 package com.smartretail.backend.controller;
 
-import com.opencsv.CSVReader;
-import com.opencsv.exceptions.CsvValidationException;
+import com.opencsv.bean.CsvToBeanBuilder;
 import com.smartretail.backend.models.Product;
 import com.smartretail.backend.service.FileService;
 import com.smartretail.backend.service.ProductService;
+import lombok.Getter;
+import lombok.Setter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.context.MessageSource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.List;
+import java.util.*;
 
 @RestController
 @RequestMapping("/api/products")
 public class ProductController {
+
+    private static final Logger logger = LoggerFactory.getLogger(ProductController.class);
     private final ProductService productService;
-    private final SimpleDateFormat csvDateFormat = new SimpleDateFormat("yyyy-MM-dd");
     private final FileService fileService;
-    public ProductController(ProductService productService, FileService fileService) {
+    private final MessageSource messageSource;
+
+    public ProductController(ProductService productService, FileService fileService, MessageSource messageSource) {
         this.productService = productService;
         this.fileService = fileService;
+        this.messageSource = messageSource;
     }
 
     @PostMapping
-    @PreAuthorize("hasRole('OWNER')")
-    public ResponseEntity<Product> addProduct(@RequestBody Product product) {
-        Product savedProduct = productService.addProduct(product);
-        return new ResponseEntity<>(savedProduct, HttpStatus.CREATED);
+    public ResponseEntity<Product> createProduct(
+            @RequestPart("product") Product product,
+            @RequestPart(value = "imageFile", required = false) MultipartFile imageFile,
+            Locale locale) throws IOException {
+        logger.debug("Creating product: {}", product.getProductId());
+        Product createdProduct = productService.createProduct(product, imageFile, locale);
+        return new ResponseEntity<>(createdProduct, HttpStatus.CREATED);
     }
 
     @GetMapping("/{productId}")
-    @PreAuthorize("hasAnyRole('OWNER', 'MANAGER', 'CASHIER')")
-    public ResponseEntity<Product> getProductById(@PathVariable String productId) {
-        Product product = productService.getProductById(productId);
-        return new ResponseEntity<>(product, HttpStatus.OK);
+    public ResponseEntity<Product> getProductById(@PathVariable String productId, Locale locale) {
+        logger.debug("Fetching product: {}", productId);
+        Product product = productService.getProductById(productId, locale);
+        return ResponseEntity.ok(product);
     }
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('OWNER', 'MANAGER', 'CASHIER')")
     public ResponseEntity<List<Product>> getAllProducts() {
+        logger.debug("Fetching all products");
         List<Product> products = productService.getAllProducts();
-        return new ResponseEntity<>(products, HttpStatus.OK);
-    }
-
-    // General update (partial updates supported)
-    @PutMapping("/{productId}")
-    @PreAuthorize("hasAnyRole('OWNER', 'MANAGER')")
-    public ResponseEntity<Product> updateProduct(@PathVariable String productId, @RequestBody Product updateData) {
-        Product updatedProduct = productService.updateProduct(productId, updateData);
-        return new ResponseEntity<>(updatedProduct, HttpStatus.OK);
-    }
-
-    // Single image upload endpoint (separate)
-    @PutMapping("/{productId}/image")
-    @PreAuthorize("hasAnyRole('OWNER', 'MANAGER')")
-    public ResponseEntity<?> updateProductImage(@PathVariable String productId, @RequestParam("image") MultipartFile imageFile) {
-        try {
-            Product updateData = new Product();
-            // If you want to force replacement, leave updateData.imageId empty string or null
-            Product updatedProduct = productService.updateProduct(productId, updateData, imageFile);
-            return new ResponseEntity<>(updatedProduct, HttpStatus.OK);
-        } catch (IOException e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body("Failed to upload image: " + e.getMessage());
-        }
-    }
-    @GetMapping("/{productId}/image")
-    @PreAuthorize("hasAnyRole('OWNER','MANAGER','CASHIER')")
-    public ResponseEntity<byte[]> getProductImage(@PathVariable String productId) {
-        Product product = productService.getProductById(productId);
-        if (product.getImageId() == null) {
-            return ResponseEntity.notFound().build();
-        }
-        byte[] image = fileService.getImage(product.getImageId());
-        return ResponseEntity.ok()
-                .header("Content-Type", "image/jpeg") // or fetch from metadata
-                .body(image);
-    }
-
-    @DeleteMapping("/{productId}")
-    @PreAuthorize("hasRole('OWNER')")
-    public ResponseEntity<Void> deleteProduct(@PathVariable String productId) {
-        productService.deleteProduct(productId);
-        return new ResponseEntity<>(HttpStatus.NO_CONTENT);
+        return ResponseEntity.ok(products);
     }
 
     @PostMapping("/bulk")
-    @PreAuthorize("hasRole('OWNER')")
-    public ResponseEntity<String> bulkUploadProducts(@RequestParam("file") MultipartFile csvFile) {
-        try {
-            List<Product> products = parseCsv(csvFile.getInputStream());
-            for (Product product : products) {
-                productService.addProduct(product);
-            }
-            return new ResponseEntity<>("Bulk upload successful: " + products.size() + " products added", HttpStatus.OK);
-        } catch (IOException | CsvValidationException e) {
-            return new ResponseEntity<>("Bulk upload failed: " + e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR);
+    public ResponseEntity<Map<String, Object>> bulkUploadProducts(
+            @RequestPart("file") MultipartFile file,
+            Locale locale) {
+        logger.info("Starting bulk product upload");
+
+        // File validation
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException(messageSource.getMessage("file.missing", null, locale));
         }
+        if (!file.getOriginalFilename().toLowerCase().endsWith(".csv")) {
+            throw new IllegalArgumentException(messageSource.getMessage("file.invalid.format", null, locale));
+        }
+
+        Map<String, Object> result = new HashMap<>();
+        List<Product> successfulProducts = new ArrayList<>();
+        List<String> skippedProducts = new ArrayList<>();
+        List<String> errorMessages = new ArrayList<>();
+
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(file.getInputStream()))) {
+            List<ProductCsvBean> csvBeans = new CsvToBeanBuilder<ProductCsvBean>(reader)
+                    .withType(ProductCsvBean.class)
+                    .withIgnoreLeadingWhiteSpace(true)
+                    .build()
+                    .parse();
+
+            for (int i = 0; i < csvBeans.size(); i++) {
+                ProductCsvBean csvBean = csvBeans.get(i);
+                int rowNumber = i + 2;
+
+                try {
+                    // Validate required fields
+                    if (csvBean.getProductId() == null || csvBean.getProductId().isEmpty()) {
+                        errorMessages.add("Row " + rowNumber + ": Product ID is missing");
+                        continue;
+                    }
+                    if (csvBean.getName() == null || csvBean.getName().isEmpty()) {
+                        errorMessages.add("Row " + rowNumber + ": Product name is missing");
+                        continue;
+                    }
+
+                    // Check if product already exists using service
+                    if (productService.existsByProductId(csvBean.getProductId())) {
+                        skippedProducts.add("Row " + rowNumber + ": Product " + csvBean.getProductId() + " already exists - skipped");
+                        continue;
+                    }
+
+                    // Create and save product
+                    Product newProduct = createProductFromCsvBean(csvBean);
+                    Product savedProduct = productService.addProduct(newProduct, locale);
+                    successfulProducts.add(savedProduct);
+                    logger.info("Row {}: Successfully added product {}", rowNumber, newProduct.getProductId());
+
+                } catch (Exception e) {
+                    errorMessages.add("Row " + rowNumber + ": " + e.getMessage());
+                }
+            }
+
+        } catch (Exception e) {
+            logger.error("Failed to parse CSV file: {}", e.getMessage());
+            throw new IllegalArgumentException(messageSource.getMessage("file.parse.error", null, locale), e);
+        }
+
+        // Build response
+        result.put("successful", successfulProducts.size());
+        result.put("skipped", skippedProducts.size());
+        result.put("errors", errorMessages.size());
+        result.put("successfulProducts", successfulProducts);
+        result.put("skippedDetails", skippedProducts);
+        result.put("errorDetails", errorMessages);
+
+        logger.info("Bulk upload completed: {} successful, {} skipped, {} errors",
+                successfulProducts.size(), skippedProducts.size(), errorMessages.size());
+
+        return new ResponseEntity<>(result, HttpStatus.CREATED);
     }
 
-    private List<Product> parseCsv(InputStream inputStream) throws IOException, CsvValidationException {
-        List<Product> products = new ArrayList<>();
-        try (CSVReader reader = new CSVReader(new InputStreamReader(inputStream))) {
-            String[] headers = reader.readNext(); // Skip header
-            String[] line;
-            while ((line = reader.readNext()) != null) {
-                Product product = new Product();
-                product.setProductId(line[0]);
-                product.setName(line[1]);
-                product.setCategory(line[2]);
-                product.setPrice(Double.parseDouble(line[3]));
-                product.setQuantity(Integer.parseInt(line[4]));
-                product.setReorderLevel(Integer.parseInt(line[5]));
-                product.setExpiryDate((line.length > 6 && line[6] != null && !line[6].isEmpty()) ? csvDateFormat.parse(line[6]) : null);
-                products.add(product);
+    private Product createProductFromCsvBean(ProductCsvBean csvBean) {
+        Product product = new Product();
+        product.setProductId(csvBean.getProductId());
+        product.setName(csvBean.getName());
+        product.setCategory(csvBean.getCategory());
+        product.setPrice(csvBean.getPrice());
+        product.setQuantity(csvBean.getQuantity());
+        product.setMinQuantity(csvBean.getMinQuantity());
+        product.setReorderLevel(csvBean.getReorderLevel());
+        product.setAddedBy(csvBean.getAddedBy());
+
+        // Date parsing logic
+        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd");
+        dateFormat.setLenient(false);
+
+        try {
+            if (csvBean.getExpiryDate() != null && !csvBean.getExpiryDate().isEmpty()) {
+                product.setExpiryDate(dateFormat.parse(csvBean.getExpiryDate()));
+            }
+            if (csvBean.getLastUpdated() != null && !csvBean.getLastUpdated().isEmpty()) {
+                product.setLastUpdated(dateFormat.parse(csvBean.getLastUpdated()));
+            } else {
+                product.setLastUpdated(new Date());
             }
         } catch (Exception e) {
-            // wrap parse exceptions as IOException so controller handles uniformly
-            throw new IOException("Failed to parse CSV: " + e.getMessage(), e);
+            product.setLastUpdated(new Date());
         }
-        return products;
+
+        product.setCreatedAt(new Date());
+
+        return product;
+    }
+
+    @Setter
+    @Getter
+    public static class ProductCsvBean {
+        private String productId;
+        private String name;
+        private String category;
+        private double price;
+        private int quantity;
+        private int minQuantity;
+        private int reorderLevel;
+        private String expiryDate;
+        private String addedBy;
+        private String lastUpdated;
     }
 }

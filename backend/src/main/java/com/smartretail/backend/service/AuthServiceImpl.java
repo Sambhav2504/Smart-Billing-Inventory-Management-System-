@@ -3,68 +3,85 @@ package com.smartretail.backend.service;
 import com.smartretail.backend.dto.LoginRequest;
 import com.smartretail.backend.dto.LoginResponse;
 import com.smartretail.backend.dto.SignupRequest;
+import com.smartretail.backend.models.RefreshToken;
 import com.smartretail.backend.models.User;
+import com.smartretail.backend.repository.RefreshTokenRepository;
 import com.smartretail.backend.repository.UserRepository;
 import com.smartretail.backend.security.JwtUtil;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.util.Date;
-import java.util.UUID;
 
 @Service
 public class AuthServiceImpl implements AuthService {
+
     private final UserRepository userRepository;
+    private final RefreshTokenRepository refreshTokenRepository;
     private final JwtUtil jwtUtil;
     private final BCryptPasswordEncoder passwordEncoder;
 
-    public AuthServiceImpl(UserRepository userRepository, JwtUtil jwtUtil, BCryptPasswordEncoder passwordEncoder) {
+    public AuthServiceImpl(UserRepository userRepository,
+                           RefreshTokenRepository refreshTokenRepository,
+                           JwtUtil jwtUtil) {
         this.userRepository = userRepository;
+        this.refreshTokenRepository = refreshTokenRepository;
         this.jwtUtil = jwtUtil;
-        this.passwordEncoder = passwordEncoder;
+        this.passwordEncoder = new BCryptPasswordEncoder();
     }
 
     @Override
     public User signup(SignupRequest request) {
-        System.out.println("[AUTH] Signing up user: " + request.getEmail());
-        if (userRepository.existsByEmail(request.getEmail())) {
-            System.out.println("[AUTH] Signup failed: Email already exists: " + request.getEmail());
-            throw new RuntimeException("Email already exists");
+        if (userRepository.findByEmail(request.getEmail()).isPresent()) {
+            throw new RuntimeException("User already exists: " + request.getEmail());
         }
-        String userId = "u" + UUID.randomUUID().toString().substring(0, 8);
-        User user = new User(
-                userId,
-                request.getEmail(),
-                passwordEncoder.encode(request.getPassword()),
-                request.getName(),
-                request.getRole().toUpperCase()
-        );
-        User savedUser = userRepository.save(user);
-        System.out.println("[AUTH] User signed up successfully: " + savedUser.getEmail());
-        return savedUser;
+        User user = new User();
+        user.setEmail(request.getEmail());
+        user.setName(request.getName());
+        user.setRole(request.getRole());
+        user.setPassword(passwordEncoder.encode(request.getPassword())); // hashed
+        return userRepository.save(user);
     }
 
     @Override
     public LoginResponse login(LoginRequest request) {
-        System.out.println("[AUTH] Logging in user: " + request.getEmail());
         User user = userRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> {
-                    System.out.println("[AUTH] Login failed: User not found: " + request.getEmail());
-                    return new RuntimeException("User not found");
-                });
+                .orElseThrow(() -> new RuntimeException("User not found: " + request.getEmail()));
+
         if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
-            System.out.println("[AUTH] Login failed: Invalid password for: " + request.getEmail());
             throw new RuntimeException("Invalid password");
         }
-        user.setLastLogin(new Date());
-        userRepository.save(user);
-        String token = jwtUtil.generateToken(user.getEmail(), user.getRole());
-        System.out.println("[AUTH] Login successful for: " + user.getEmail());
-        return new LoginResponse(token, user.getUserId(), user.getName(), user.getRole());
+
+        String accessToken = jwtUtil.generateToken(user.getEmail(), user.getRole());
+        String refreshToken = jwtUtil.generateRefreshToken(user.getEmail());
+
+        refreshTokenRepository.save(
+                new RefreshToken(user.getId(), refreshToken,
+                        new Date(System.currentTimeMillis() + jwtUtil.getExpiration() * 2))
+        );
+
+        return new LoginResponse(accessToken, refreshToken);
     }
 
     @Override
     public User getUserByEmail(String email) {
-        return userRepository.findByEmail(email).orElse(null);
+        return userRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("User not found: " + email));
+    }
+
+    @Override
+    public String refreshToken(String refreshToken) {
+        RefreshToken storedToken = refreshTokenRepository.findByToken(refreshToken)
+                .orElseThrow(() -> new RuntimeException("Invalid refresh token"));
+
+        if (storedToken.getExpiryDate().before(new Date())) {
+            refreshTokenRepository.deleteById(storedToken.getId());
+            throw new RuntimeException("Refresh token expired");
+        }
+
+        User user = userRepository.findById(storedToken.getUserId())
+                .orElseThrow(() -> new RuntimeException("User not found: " + storedToken.getUserId()));
+
+        return jwtUtil.generateToken(user.getEmail(), user.getRole());
     }
 }

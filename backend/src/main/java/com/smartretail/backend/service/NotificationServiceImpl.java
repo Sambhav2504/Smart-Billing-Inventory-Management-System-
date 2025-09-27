@@ -3,24 +3,28 @@ package com.smartretail.backend.service;
 import com.smartretail.backend.models.Notification;
 import com.smartretail.backend.repository.NotificationRepository;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.MessageSource;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
 
 import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 
 @Service
 public class NotificationServiceImpl implements NotificationService {
     private final NotificationRepository notificationRepository;
     private final JavaMailSender mailSender;
+    private final MessageSource messageSource;
 
     @Value("${spring.mail.username}")
     private String fromEmail;
 
-    public NotificationServiceImpl(NotificationRepository notificationRepository, JavaMailSender mailSender) {
+    public NotificationServiceImpl(NotificationRepository notificationRepository, JavaMailSender mailSender, MessageSource messageSource) {
         this.notificationRepository = notificationRepository;
         this.mailSender = mailSender;
+        this.messageSource = messageSource;
     }
 
     @Override
@@ -67,16 +71,15 @@ public class NotificationServiceImpl implements NotificationService {
     }
 
     @Override
-    public void sendBillNotification(String customerEmail, String billId, double total) {
+    public void sendBillNotification(String customerEmail, String billId, double total, String pdfAccessToken, Locale locale) {
         if (customerEmail != null && !customerEmail.isEmpty()) {
-            String emailSubject = "SmartRetail: Bill " + billId + " Confirmation";
-            String emailText = "Thank you for shopping at SmartRetail!\n" +
-                    "Bill ID: " + billId + "\n" +
-                    "Total: ₹" + String.format("%.2f", total) + "\n" +
-                    "View your bill at: http://localhost:8080/api/billing/" + billId + "/pdf";
+            String emailSubject = messageSource.getMessage("bill.notification.subject", new Object[]{billId}, locale);
+            String pdfLink = String.format("http://localhost:8080/api/billing/%s/pdf?token=%s", billId, pdfAccessToken);
+            String emailText = messageSource.getMessage("bill.created.notification", new Object[]{billId, String.format("%.2f", total), pdfLink}, locale);
             sendEmail(customerEmail, emailSubject, emailText);
         }
     }
+
 
     @Override
     public void sendLowStockNotification(String managerEmail, String productName, int quantity, int reorderLevel) {

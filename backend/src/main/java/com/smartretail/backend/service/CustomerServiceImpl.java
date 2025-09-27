@@ -1,85 +1,90 @@
 package com.smartretail.backend.service;
 
+import com.smartretail.backend.models.Bill;
 import com.smartretail.backend.models.Customer;
 import com.smartretail.backend.repository.CustomerRepository;
+import org.springframework.context.MessageSource;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Date;
 import java.util.List;
-import java.util.Optional;
+import java.util.Locale;
 
 @Service
 public class CustomerServiceImpl implements CustomerService {
-    private final CustomerRepository customerRepository;
 
-    public CustomerServiceImpl(CustomerRepository customerRepository) {
+    private final CustomerRepository customerRepository;
+    private final MessageSource messageSource;
+
+    public CustomerServiceImpl(CustomerRepository customerRepository, MessageSource messageSource) {
         this.customerRepository = customerRepository;
+        this.messageSource = messageSource;
     }
 
     @Override
-    @Transactional
-    public Customer createCustomer(Customer customer) {
-        System.out.println("[SERVICE] Creating customer: " + customer.getName());
-        if (customer.getMobile() != null && customerRepository.existsByMobile(customer.getMobile())) {
-            System.out.println("[SERVICE] Create failed: Mobile already exists: " + customer.getMobile());
-            throw new RuntimeException("Mobile already exists");
+    public Customer findOrCreateCustomer(Bill.CustomerInfo customerInfo, Locale locale) {
+        Customer customer = customerRepository.findByMobile(customerInfo.getMobile())
+                .orElseGet(() -> {
+                    Customer newCustomer = new Customer();
+                    newCustomer.setName(customerInfo.getName());
+                    newCustomer.setEmail(customerInfo.getEmail());
+                    newCustomer.setMobile(customerInfo.getMobile());
+                    newCustomer.setCreatedAt(new Date());
+                    return customerRepository.save(newCustomer);
+                });
+        return customer;
+    }
+
+    @Override
+    public void addBillId(String mobile, String billId) {
+        Customer customer = customerRepository.findByMobile(mobile)
+                .orElseThrow(() -> new RuntimeException(
+                        messageSource.getMessage("customer.not.found", new Object[]{mobile}, Locale.getDefault())));
+        customer.addBillId(billId);
+        customerRepository.save(customer);
+    }
+
+    @Override
+    public Customer createCustomer(Customer customer, Locale locale) {
+        if (customerRepository.findByMobile(customer.getMobile()).isPresent()) {
+            throw new RuntimeException(
+                    messageSource.getMessage("customer.exists", new Object[]{customer.getMobile()}, locale));
         }
         customer.setCreatedAt(new Date());
-        Customer savedCustomer = customerRepository.save(customer);
-        System.out.println("[SERVICE] Customer created successfully: " + savedCustomer.getId());
-        return savedCustomer;
+        return customerRepository.save(customer);
     }
 
     @Override
-    public Customer getCustomerByMobile(String mobile) {
-        System.out.println("[SERVICE] Fetching customer with mobile: " + mobile);
-        Optional<Customer> optionalCustomer = customerRepository.findByMobile(mobile);
-        return optionalCustomer.orElse(null);
+    public Customer getCustomerById(String id, Locale locale) {
+        return customerRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException(
+                        messageSource.getMessage("customer.not.found", new Object[]{id}, locale)));
     }
 
     @Override
     public List<Customer> getAllCustomers() {
-        System.out.println("[SERVICE] Fetching all customers.");
         return customerRepository.findAll();
     }
 
     @Override
-    @Transactional
-    public Customer updateCustomer(String id, Customer updateData) {
-        System.out.println("[SERVICE] Updating customer ID: " + id);
-        Customer customer = customerRepository.findById(id)
-                .orElseThrow(() -> {
-                    System.out.println("[SERVICE] Update failed: Customer not found for ID: " + id);
-                    return new RuntimeException("Customer not found");
-                });
-        if (updateData.getName() != null) customer.setName(updateData.getName());
-        if (updateData.getEmail() != null) customer.setEmail(updateData.getEmail());
-        if (updateData.getMobile() != null) {
-            if (customerRepository.existsByMobile(updateData.getMobile()) &&
-                    !customer.getMobile().equals(updateData.getMobile())) {
-                System.out.println("[SERVICE] Update failed: Mobile already exists: " + updateData.getMobile());
-                throw new RuntimeException("Mobile already exists");
-            }
-            customer.setMobile(updateData.getMobile());
-        }
-        Customer updatedCustomer = customerRepository.save(customer);
-        System.out.println("[SERVICE] Customer updated successfully: " + updatedCustomer.getId());
-        return updatedCustomer;
+    public Customer updateCustomer(String id, Customer customer, Locale locale) {
+        Customer existing = customerRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException(
+                        messageSource.getMessage("customer.not.found", new Object[]{id}, locale)));
+        existing.setName(customer.getName());
+        existing.setEmail(customer.getEmail());
+        existing.setMobile(customer.getMobile());
+        return customerRepository.save(existing);
     }
 
     @Override
-    @Transactional
-    public void deleteCustomer(String id) {
-        System.out.println("[SERVICE] Deleting customer ID: " + id);
+    public void deleteCustomer(String id, Locale locale) {
         if (!customerRepository.existsById(id)) {
-            System.out.println("[SERVICE] Delete failed: Customer not found for ID: " + id);
-            throw new RuntimeException("Customer not found");
+            throw new RuntimeException(
+                    messageSource.getMessage("customer.not.found", new Object[]{id}, locale));
         }
         customerRepository.deleteById(id);
-        System.out.println("[SERVICE] Customer deleted successfully.");
     }
-
     @Override
     public List<String> getCustomerPurchaseHistory(String customerId) {
         System.out.println("[SERVICE] Fetching purchase history for customer ID: " + customerId);
@@ -88,3 +93,4 @@ public class CustomerServiceImpl implements CustomerService {
         return customer.getPurchaseHistory();
     }
 }
+

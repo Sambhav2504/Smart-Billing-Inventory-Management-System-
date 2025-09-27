@@ -6,15 +6,19 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 
 public interface ProductService {
-    Product addProduct(Product product);
-    Product getProductById(String productId);
+    boolean existsByProductId(String productId);
+    Product addProduct(Product product, Locale locale);
+    Product createProduct(Product product, MultipartFile imageFile, Locale locale) throws IOException;
+    Product getProductById(String productId, Locale locale);
     List<Product> getAllProducts();
-    Product updateProduct(String productId, Product product);
-    Product updateProduct(String productId, Product product, MultipartFile imageFile) throws IOException;
-    void deleteProduct(String productId);
+    Product updateProduct(String productId, Product product, Locale locale);
+    Product updateProduct(String productId, Product product, MultipartFile imageFile, Locale locale) throws IOException;
+    void deleteProduct(String productId, Locale locale);
     List<Product> getLowStockProducts();
     List<Product> getExpiringProducts(Date threshold);
-    Product restockProduct(String productId, int restockQty);
+    Product restockProduct(String productId, int restockQty, Locale locale);
+    Product updateProductQuantity(String productId, int quantity, Locale locale);
 }

@@ -26,7 +26,7 @@ public class AuthController {
         User user = authService.signup(request);
         Map<String, Object> response = new HashMap<>();
         response.put("message", "User registered successfully");
-        response.put("userId", user.getUserId());
+        response.put("userId", user.getId());
         response.put("email", user.getEmail());
         return ResponseEntity.status(201).body(response);
     }
@@ -35,5 +35,13 @@ public class AuthController {
     public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request) {
         LoginResponse loginResponse = authService.login(request);
         return ResponseEntity.ok(loginResponse);
+    }
+
+    @PostMapping("/refresh")
+    public ResponseEntity<?> refreshToken(@RequestBody String refreshToken) {
+        String newAccessToken = authService.refreshToken(refreshToken);
+        Map<String, String> response = new HashMap<>();
+        response.put("accessToken", newAccessToken);
+        return ResponseEntity.ok(response);
     }
 }

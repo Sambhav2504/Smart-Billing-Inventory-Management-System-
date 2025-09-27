@@ -30,4 +30,8 @@ public class User {
         this.createdAt = new Date();
         this.lastLogin = null;
     }
+
+    public User() {
+
+    }
 }

@@ -11,7 +11,6 @@ import java.util.Date;
 @Getter
 @Document(collection = "products")
 public class Product {
-    // Getters and Setters
     @Id
     private String productId;
     private String name;
@@ -24,8 +23,8 @@ public class Product {
     private String imageId; // GridFS ID for image
     private String addedBy;
     private Date lastUpdated;
+    private Date createdAt;
 
-    // Constructors
     public Product() {}
 
     public Product(String productId, String name, String category, double price, int quantity,
@@ -42,5 +41,4 @@ public class Product {
         this.addedBy = addedBy;
         this.lastUpdated = lastUpdated;
     }
-
 }

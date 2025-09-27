@@ -13,19 +13,19 @@ import java.util.Date;
 public class Notification {
     @Id
     private String id;
-    private String to;       // Email address
+    private String to;
     private String subject;
     private String message;
     private Date sentAt;
 
-    // Default constructor
-    public Notification() {}
+    public Notification() {
+    }
 
-    // Constructor
     public Notification(String to, String subject, String message, Date sentAt) {
         this.to = to;
         this.subject = subject;
         this.message = message;
         this.sentAt = sentAt;
     }
+
 }

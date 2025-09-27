@@ -9,4 +9,5 @@ public interface AuthService {
     User signup(SignupRequest request);
     LoginResponse login(LoginRequest request);
     User getUserByEmail(String email);
+    String refreshToken(String refreshToken);
 }

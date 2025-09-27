@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayOutputStream;
 import java.text.SimpleDateFormat;
+import java.util.Locale;
 
 @Service
 public class BillPdfService {
@@ -29,125 +30,78 @@ public class BillPdfService {
         this.productService = productService;
     }
 
-    public byte[] generateBillPdf(String billId) throws Exception {
-        // Fetch bill
-        Bill bill = billService.getBillById(billId);
+    // Optional: Keep this if you still want to support billId directly
+    public byte[] generateBillPdf(String billId, Locale locale) {
+        Bill bill = billService.getBillById(billId, locale);
+        return generateBillPdf(bill, locale);
+    }
+
+    // 🔥 Main method (no checked exception now)
+    public byte[] generateBillPdf(Bill bill, Locale locale) {
         if (bill == null) {
-            throw new RuntimeException("Bill not found: " + billId);
+            throw new RuntimeException("Bill is null, cannot generate PDF");
         }
 
-        // Create PDF in memory
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        PdfWriter writer = new PdfWriter(baos);
-        PdfDocument pdf = new PdfDocument(writer);
-        Document document = new Document(pdf);
+        try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
+            PdfWriter writer = new PdfWriter(outputStream);
+            PdfDocument pdf = new PdfDocument(writer);
+            Document document = new Document(pdf);
 
-        // Set font for premium look
-        PdfFont font = PdfFontFactory.createFont("Helvetica");
-        PdfFont boldFont = PdfFontFactory.createFont("Helvetica-Bold");
+            PdfFont font = PdfFontFactory.createFont("Helvetica");
+            PdfFont boldFont = PdfFontFactory.createFont("Helvetica-Bold");
 
-        // Add header
-        document.add(new Paragraph("SmartRetail")
-                .setFont(boldFont)
-                .setFontSize(24)
-                .setTextAlignment(TextAlignment.CENTER)
-                .setMarginBottom(10));
-        document.add(new Paragraph("Official Receipt")
-                .setFont(font)
-                .setFontSize(14)
-                .setTextAlignment(TextAlignment.CENTER)
-                .setMarginBottom(20));
+            // Header
+            document.add(new Paragraph("SmartRetail")
+                    .setFont(boldFont).setFontSize(24).setTextAlignment(TextAlignment.CENTER));
+            document.add(new Paragraph("Official Receipt")
+                    .setFont(font).setFontSize(14).setTextAlignment(TextAlignment.CENTER).setMarginBottom(20));
 
-        // Add bill details
-        Table detailsTable = new Table(new float[]{1, 2});
-        detailsTable.setWidth(UnitValue.createPercentValue(50));
-        detailsTable.addCell(new Cell().setBorder(Border.NO_BORDER)
-                .setFont(boldFont)
-                .setFontSize(10)
-                .add(new Paragraph("Bill ID:")));
-        detailsTable.addCell(new Cell().setBorder(Border.NO_BORDER)
-                .setFont(font)
-                .setFontSize(10)
-                .add(new Paragraph(bill.getBillId())));
-        detailsTable.addCell(new Cell().setBorder(Border.NO_BORDER)
-                .setFont(boldFont)
-                .setFontSize(10)
-                .add(new Paragraph("Customer:")));
-        detailsTable.addCell(new Cell().setBorder(Border.NO_BORDER)
-                .setFont(font)
-                .setFontSize(10)
-                .add(new Paragraph(bill.getCustomer().getName())));
-        detailsTable.addCell(new Cell().setBorder(Border.NO_BORDER)
-                .setFont(boldFont)
-                .setFontSize(10)
-                .add(new Paragraph("Mobile:")));
-        detailsTable.addCell(new Cell().setBorder(Border.NO_BORDER)
-                .setFont(font)
-                .setFontSize(10)
-                .add(new Paragraph(bill.getCustomer().getMobile())));
-        detailsTable.addCell(new Cell().setBorder(Border.NO_BORDER)
-                .setFont(boldFont)
-                .setFontSize(10)
-                .add(new Paragraph("Date:")));
-        detailsTable.addCell(new Cell().setBorder(Border.NO_BORDER)
-                .setFont(font)
-                .setFontSize(10)
-                .add(new Paragraph(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(bill.getCreatedAt()))));
-        document.add(detailsTable.setMarginBottom(20));
+            // Bill details
+            Table detailsTable = new Table(new float[]{1, 2});
+            detailsTable.setWidth(UnitValue.createPercentValue(50));
+            detailsTable.addCell(new Cell().setBorder(Border.NO_BORDER).setFont(boldFont).add(new Paragraph("Bill ID:")));
+            detailsTable.addCell(new Cell().setBorder(Border.NO_BORDER).setFont(font).add(new Paragraph(bill.getBillId())));
 
-        // Add items table
-        Table itemsTable = new Table(new float[]{3, 1, 1, 1});
-        itemsTable.setWidth(UnitValue.createPercentValue(100));
-        itemsTable.addHeaderCell(new Cell().setBackgroundColor(ColorConstants.LIGHT_GRAY)
-                .setFont(boldFont)
-                .setFontSize(10)
-                .add(new Paragraph("Product")));
-        itemsTable.addHeaderCell(new Cell().setBackgroundColor(ColorConstants.LIGHT_GRAY)
-                .setFont(boldFont)
-                .setFontSize(10)
-                .add(new Paragraph("Qty")));
-        itemsTable.addHeaderCell(new Cell().setBackgroundColor(ColorConstants.LIGHT_GRAY)
-                .setFont(boldFont)
-                .setFontSize(10)
-                .add(new Paragraph("Price")));
-        itemsTable.addHeaderCell(new Cell().setBackgroundColor(ColorConstants.LIGHT_GRAY)
-                .setFont(boldFont)
-                .setFontSize(10)
-                .add(new Paragraph("Subtotal")));
-        for (Bill.BillItem item : bill.getItems()) {
-            Product product = productService.getProductById(item.getProductId());
-            itemsTable.addCell(new Cell().setFont(font)
-                    .setFontSize(10)
-                    .add(new Paragraph(product.getName())));
-            itemsTable.addCell(new Cell().setFont(font)
-                    .setFontSize(10)
-                    .add(new Paragraph(String.valueOf(item.getQty()))));
-            itemsTable.addCell(new Cell().setFont(font)
-                    .setFontSize(10)
-                    .add(new Paragraph(String.format("₹%.2f", item.getPrice()))));
-            itemsTable.addCell(new Cell().setFont(font)
-                    .setFontSize(10)
-                    .add(new Paragraph(String.format("₹%.2f", item.getQty() * item.getPrice()))));
+            if (bill.getCustomer() != null) {
+                detailsTable.addCell(new Cell().setBorder(Border.NO_BORDER).setFont(boldFont).add(new Paragraph("Customer:")));
+                detailsTable.addCell(new Cell().setBorder(Border.NO_BORDER).setFont(font).add(new Paragraph(
+                        bill.getCustomer().getName() != null ? bill.getCustomer().getName() : "N/A")));
+
+                detailsTable.addCell(new Cell().setBorder(Border.NO_BORDER).setFont(boldFont).add(new Paragraph("Mobile:")));
+                detailsTable.addCell(new Cell().setBorder(Border.NO_BORDER).setFont(font).add(new Paragraph(
+                        bill.getCustomer().getMobile() != null ? bill.getCustomer().getMobile() : "N/A")));
+            }
+
+            document.add(detailsTable.setMarginBottom(20));
+
+            // Items
+            Table itemsTable = new Table(new float[]{3, 1, 1, 1});
+            itemsTable.setWidth(UnitValue.createPercentValue(100));
+            itemsTable.addHeaderCell(new Cell().setBackgroundColor(ColorConstants.LIGHT_GRAY).setFont(boldFont).add(new Paragraph("Product")));
+            itemsTable.addHeaderCell(new Cell().setBackgroundColor(ColorConstants.LIGHT_GRAY).setFont(boldFont).add(new Paragraph("Qty")));
+            itemsTable.addHeaderCell(new Cell().setBackgroundColor(ColorConstants.LIGHT_GRAY).setFont(boldFont).add(new Paragraph("Price")));
+            itemsTable.addHeaderCell(new Cell().setBackgroundColor(ColorConstants.LIGHT_GRAY).setFont(boldFont).add(new Paragraph("Subtotal")));
+
+            if (bill.getItems() != null) {
+                for (Bill.BillItem item : bill.getItems()) {
+                    Product product = productService.getProductById(item.getProductId(), locale);
+                    itemsTable.addCell(new Cell().setFont(font).add(new Paragraph(product != null ? product.getName() : "Unknown Product")));
+                    itemsTable.addCell(new Cell().setFont(font).add(new Paragraph(String.valueOf(item.getQty()))));
+                    itemsTable.addCell(new Cell().setFont(font).add(new Paragraph(String.format("₹%.2f", item.getPrice()))));
+                    itemsTable.addCell(new Cell().setFont(font).add(new Paragraph(String.format("₹%.2f", item.getQty() * item.getPrice()))));
+                }
+            }
+            document.add(itemsTable);
+
+            // Total
+            document.add(new Paragraph("Total: ₹" + String.format("%.2f", bill.getTotalAmount()))
+                    .setFont(boldFont).setFontSize(12).setTextAlignment(TextAlignment.RIGHT).setMarginTop(10));
+
+            document.close();
+            return outputStream.toByteArray();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to generate PDF", e);
         }
-        document.add(itemsTable);
-
-        // Add total
-        document.add(new Paragraph("Total: ₹" + String.format("%.2f", bill.getTotal()))
-                .setFont(boldFont)
-                .setFontSize(12)
-                .setTextAlignment(TextAlignment.RIGHT)
-                .setMarginTop(10));
-
-        // Add footer
-        document.add(new Paragraph("Thank you for shopping with SmartRetail!")
-                .setFont(font)
-                .setFontSize(10)
-                .setTextAlignment(TextAlignment.CENTER)
-                .setMarginTop(20));
-
-        // Close document
-        document.close();
-
-        return baos.toByteArray();
     }
 }
+
