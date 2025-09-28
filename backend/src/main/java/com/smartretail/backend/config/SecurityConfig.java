@@ -41,6 +41,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/billing/*/pdf").permitAll()
                         .requestMatchers("/api/products/**", "/api/billing/**").hasRole("MANAGER")
                         .requestMatchers("/api/customers/**").hasAnyRole("MANAGER", "CASHIER")
+                        .requestMatchers("/api/reports/**").hasRole("MANAGER")
                         .anyRequest().authenticated()
                 )
                 .csrf(AbstractHttpConfigurer::disable)

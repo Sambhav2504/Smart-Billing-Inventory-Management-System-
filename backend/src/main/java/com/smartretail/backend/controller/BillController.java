@@ -5,7 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.opencsv.bean.CsvToBeanBuilder;
 import com.smartretail.backend.models.Bill;
 import com.smartretail.backend.service.BillService;
-import com.smartretail.backend.service.BillPdfService;
+import com.smartretail.backend.service.PdfService;
+import lombok.Getter;
+import lombok.Setter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.MessageSource;
@@ -22,18 +24,18 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 
 @RestController
-@RequestMapping("/api/billing")
+@RequestMapping("/api/bills")
 public class BillController {
 
     private static final Logger logger = LoggerFactory.getLogger(BillController.class);
     private final BillService billService;
-    private final BillPdfService billPdfService;
+    private final PdfService pdfService;
     private final MessageSource messageSource;
     private final ObjectMapper objectMapper;
 
-    public BillController(BillService billService, BillPdfService billPdfService, MessageSource messageSource) {
+    public BillController(BillService billService, PdfService pdfService, MessageSource messageSource) {
         this.billService = billService;
-        this.billPdfService = billPdfService;
+        this.pdfService = pdfService;
         this.messageSource = messageSource;
         this.objectMapper = new ObjectMapper();
     }
@@ -64,7 +66,7 @@ public class BillController {
         logger.debug("Fetching PDF for bill: {}", billId);
         if (token != null && billService.validatePdfAccessToken(billId, token)) {
             Bill bill = billService.getBillById(billId, locale);
-            byte[] pdfBytes = billPdfService.generateBillPdf(bill, locale);
+            byte[] pdfBytes = pdfService.generateBillPdf(bill, locale);
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_PDF);
             headers.setContentDispositionFormData("attachment", "bill_" + billId + ".pdf");
@@ -118,7 +120,7 @@ public class BillController {
 
             for (int i = 0; i < csvBeans.size(); i++) {
                 BillCsvBean csvBean = csvBeans.get(i);
-                int rowNumber = i + 2; // Account for header row
+                int rowNumber = i + 2;
 
                 try {
                     // Validate required fields
@@ -145,19 +147,16 @@ public class BillController {
                         continue;
                     }
 
-                    // Parse items JSON - remove price field and use only productId and quantity
+                    // Parse items JSON
                     List<Bill.BillItem> items;
                     try {
                         String itemsJson = csvBean.getItems().trim();
-
-                        // Parse as generic list to remove price field
                         List<Map<String, Object>> rawItems = objectMapper.readValue(itemsJson, new TypeReference<List<Map<String, Object>>>() {});
                         items = new ArrayList<>();
 
                         for (Map<String, Object> rawItem : rawItems) {
                             Bill.BillItem item = new Bill.BillItem();
 
-                            // Set productId and quantity only
                             if (rawItem.containsKey("productId")) {
                                 item.setProductId((String) rawItem.get("productId"));
                             } else {
@@ -165,19 +164,15 @@ public class BillController {
                             }
 
                             if (rawItem.containsKey("qty")) {
-                                // Handle different number types (Integer, Long, etc.)
                                 Number qtyNumber = (Number) rawItem.get("qty");
                                 item.setQty(qtyNumber.intValue());
                             } else {
                                 throw new IllegalArgumentException("qty is required in items");
                             }
-
-                            // Don't set price - it will be taken from database
                             items.add(item);
                         }
 
-                        // Validate items
-                        if (items == null || items.isEmpty()) {
+                        if (items.isEmpty()) {
                             errorMessages.add(messageSource.getMessage("bill.items.empty", new Object[]{rowNumber, csvBean.getBillId()}, locale));
                             continue;
                         }
@@ -204,13 +199,10 @@ public class BillController {
                     bill.setBillId(csvBean.getBillId().trim());
                     bill.setAddedBy(csvBean.getAddedBy().trim());
 
-                    // Create and set customer info
                     Bill.CustomerInfo customerInfo = new Bill.CustomerInfo();
                     customerInfo.setMobile(csvBean.getCustomerMobile().trim());
                     bill.setCustomer(customerInfo);
-
                     bill.setItems(items);
-                    // Don't set totalAmount - it will be calculated by service based on database prices
 
                     SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd");
                     dateFormat.setLenient(false);
@@ -225,13 +217,11 @@ public class BillController {
                         continue;
                     }
 
-                    // Create bill
                     Bill savedBill = billService.createBill(bill, locale);
                     successfulBills.add(savedBill);
                     logger.info("Row {}: Successfully added bill {}", rowNumber, bill.getBillId());
 
                 } catch (Exception e) {
-                    // Use a default message if the message code is not found
                     String errorMsg;
                     try {
                         errorMsg = messageSource.getMessage("bill.add.failed", new Object[]{csvBean.getBillId(), rowNumber}, locale) + ": " + e.getMessage();
@@ -244,7 +234,6 @@ public class BillController {
             }
 
         } catch (IllegalArgumentException e) {
-            // Re-throw our custom exceptions
             throw e;
         } catch (Exception e) {
             logger.error("Failed to process CSV file: {}", e.getMessage());
@@ -252,7 +241,6 @@ public class BillController {
                     messageSource.getMessage("file.processing.error", null, locale), e);
         }
 
-        // Build response
         result.put("successful", successfulBills.size());
         result.put("skipped", skippedBills.size());
         result.put("errors", errorMessages.size());
@@ -266,6 +254,8 @@ public class BillController {
         return new ResponseEntity<>(result, HttpStatus.CREATED);
     }
 
+    @Setter
+    @Getter
     public static class BillCsvBean {
         private String billId;
         private String customerMobile;
@@ -273,16 +263,5 @@ public class BillController {
         private String createdAt;
         private String addedBy;
 
-        // Remove totalAmount from CSV bean since it will be calculated by service
-        public String getBillId() { return billId; }
-        public void setBillId(String billId) { this.billId = billId; }
-        public String getCustomerMobile() { return customerMobile; }
-        public void setCustomerMobile(String customerMobile) { this.customerMobile = customerMobile; }
-        public String getItems() { return items; }
-        public void setItems(String items) { this.items = items; }
-        public String getCreatedAt() { return createdAt; }
-        public void setCreatedAt(String createdAt) { this.createdAt = createdAt; }
-        public String getAddedBy() { return addedBy; }
-        public void setAddedBy(String addedBy) { this.addedBy = addedBy; }
     }
 }

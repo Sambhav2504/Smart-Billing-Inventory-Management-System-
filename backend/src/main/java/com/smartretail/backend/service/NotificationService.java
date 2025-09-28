@@ -1,3 +1,4 @@
+
 package com.smartretail.backend.service;
 
 import com.smartretail.backend.models.Notification;
@@ -9,6 +10,6 @@ public interface NotificationService {
     Notification createNotification(Notification notification);
     List<Notification> getAllNotifications();
     void sendEmail(String to, String subject, String text);
-    void sendBillNotification(String customerEmail, String billId, double total, String pdfAccessToken, Locale locale);
+    void sendBillNotification(String customerEmail, String billId, double total, byte[] pdfContent, Locale locale);
     void sendLowStockNotification(String managerEmail, String productName, int quantity, int reorderLevel);
 }

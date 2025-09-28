@@ -26,6 +26,7 @@ public class Bill {
     @Getter
     public static class BillItem {
         private String productId;
+        private String productName; // Add this field
         private int qty;
         private double price;
     }

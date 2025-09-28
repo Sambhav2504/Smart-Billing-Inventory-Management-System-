@@ -8,4 +8,5 @@ import java.util.Optional;
 public interface BillRepository extends MongoRepository<Bill, String> {
     Optional<Bill> findByBillId(String billId);
     boolean existsByBillId(String billId);
+
 }
