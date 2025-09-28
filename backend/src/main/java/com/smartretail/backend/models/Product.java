@@ -25,10 +25,12 @@ public class Product {
     private Date lastUpdated;
     private Date createdAt;
 
-    public Product() {}
+    public Product() {
+        this.createdAt = new Date();
+    }
 
     public Product(String productId, String name, String category, double price, int quantity,
-                   int minQuantity, int reorderLevel, Date expiryDate, String imageId, String addedBy, Date lastUpdated) {
+                   int minQuantity, int reorderLevel, Date expiryDate, String imageId, String addedBy) {
         this.productId = productId;
         this.name = name;
         this.category = category;
@@ -39,6 +41,17 @@ public class Product {
         this.expiryDate = expiryDate;
         this.imageId = imageId;
         this.addedBy = addedBy;
-        this.lastUpdated = lastUpdated;
+        this.lastUpdated = new Date();
+        this.createdAt = new Date();
+    }
+
+    // Helper method to get ID for compatibility
+    public String getId() {
+        return this.productId;
+    }
+
+    // Helper method to set ID for compatibility
+    public void setId(String id) {
+        this.productId = id;
     }
 }

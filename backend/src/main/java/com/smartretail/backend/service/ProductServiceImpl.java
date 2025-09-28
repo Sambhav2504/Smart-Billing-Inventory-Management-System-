@@ -54,9 +54,15 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @Transactional
     public Product addProduct(Product product, Locale locale) {
-        logger.debug("[SERVICE] Adding product: {}", product.getName());
+        return createProduct(product, locale);
+    }
+
+    @Override
+    @Transactional
+    public Product createProduct(Product product, Locale locale) {
+        logger.debug("[SERVICE] Creating product: {}", product.getName());
         if (productRepository.existsByProductId(product.getProductId())) {
-            logger.error("[SERVICE] Add failed: Product ID already exists: {}", product.getProductId());
+            logger.error("[SERVICE] Create failed: Product ID already exists: {}", product.getProductId());
 
             // Log audit for duplicate attempt
             String userEmail = SecurityContextHolder.getContext().getAuthentication().getName();
@@ -70,9 +76,10 @@ public class ProductServiceImpl implements ProductService {
                     messageSource.getMessage("product.exists", new Object[]{product.getProductId()}, locale));
         }
 
+        product.setCreatedAt(new Date());
         product.setLastUpdated(new Date());
         Product savedProduct = productRepository.save(product);
-        logger.info("[SERVICE] Product added successfully: {}", savedProduct.getProductId());
+        logger.info("[SERVICE] Product created successfully: {}", savedProduct.getProductId());
 
         // Log audit for successful creation
         String userEmail = SecurityContextHolder.getContext().getAuthentication().getName();
@@ -83,6 +90,51 @@ public class ProductServiceImpl implements ProductService {
         auditDetails.put("quantity", product.getQuantity());
         auditDetails.put("reorderLevel", product.getReorderLevel());
         auditDetails.put("expiryDate", product.getExpiryDate());
+        auditLogService.logAction("PRODUCT_CREATED", product.getProductId(), userEmail, auditDetails);
+
+        return savedProduct;
+    }
+
+    @Override
+    @Transactional
+    public Product createProduct(Product product, MultipartFile imageFile, Locale locale) throws IOException {
+        logger.debug("[SERVICE] Creating product with image: {}", product.getName());
+        if (productRepository.existsByProductId(product.getProductId())) {
+            logger.error("[SERVICE] Create failed: Product ID already exists: {}", product.getProductId());
+
+            // Log audit for duplicate attempt
+            String userEmail = SecurityContextHolder.getContext().getAuthentication().getName();
+            Map<String, Object> auditDetails = new HashMap<>();
+            auditDetails.put("productId", product.getProductId());
+            auditDetails.put("name", product.getName());
+            auditDetails.put("reason", "DUPLICATE_PRODUCT_ID");
+            auditLogService.logAction("PRODUCT_CREATION_FAILED", product.getProductId(), userEmail, auditDetails);
+
+            throw new DuplicateResourceException("product.exists", product.getProductId());
+        }
+
+        String imageId = null;
+        if (imageFile != null && !imageFile.isEmpty()) {
+            imageId = fileService.uploadImage(imageFile, "product_" + product.getProductId());
+            product.setImageId(imageId);
+        }
+
+        product.setCreatedAt(new Date());
+        product.setLastUpdated(new Date());
+        Product savedProduct = productRepository.save(product);
+        logger.info("[SERVICE] Product created successfully: {}", savedProduct.getProductId());
+
+        // Log audit for successful creation
+        String userEmail = SecurityContextHolder.getContext().getAuthentication().getName();
+        Map<String, Object> auditDetails = new HashMap<>();
+        auditDetails.put("name", product.getName());
+        auditDetails.put("category", product.getCategory());
+        auditDetails.put("price", product.getPrice());
+        auditDetails.put("quantity", product.getQuantity());
+        auditDetails.put("reorderLevel", product.getReorderLevel());
+        auditDetails.put("expiryDate", product.getExpiryDate());
+        auditDetails.put("imageId", imageId);
+        auditDetails.put("hasImage", imageId != null);
         auditLogService.logAction("PRODUCT_CREATED", product.getProductId(), userEmail, auditDetails);
 
         return savedProduct;
@@ -132,51 +184,6 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     @Transactional
-    public Product createProduct(Product product, MultipartFile imageFile, Locale locale) throws IOException {
-        logger.debug("[SERVICE] Creating product: {}", product.getName());
-        if (productRepository.existsByProductId(product.getProductId())) {
-            logger.error("[SERVICE] Create failed: Product ID already exists: {}", product.getProductId());
-
-            // Log audit for duplicate attempt
-            String userEmail = SecurityContextHolder.getContext().getAuthentication().getName();
-            Map<String, Object> auditDetails = new HashMap<>();
-            auditDetails.put("productId", product.getProductId());
-            auditDetails.put("name", product.getName());
-            auditDetails.put("reason", "DUPLICATE_PRODUCT_ID");
-            auditLogService.logAction("PRODUCT_CREATION_FAILED", product.getProductId(), userEmail, auditDetails);
-
-            throw new DuplicateResourceException("product.exists", product.getProductId());
-        }
-
-        String imageId = null;
-        if (imageFile != null && !imageFile.isEmpty()) {
-            imageId = fileService.uploadImage(imageFile, "product_" + product.getProductId());
-            product.setImageId(imageId);
-        }
-
-        product.setCreatedAt(new Date());
-        product.setLastUpdated(new Date());
-        Product savedProduct = productRepository.save(product);
-        logger.info("[SERVICE] Product created successfully: {}", savedProduct.getProductId());
-
-        // Log audit for successful creation
-        String userEmail = SecurityContextHolder.getContext().getAuthentication().getName();
-        Map<String, Object> auditDetails = new HashMap<>();
-        auditDetails.put("name", product.getName());
-        auditDetails.put("category", product.getCategory());
-        auditDetails.put("price", product.getPrice());
-        auditDetails.put("quantity", product.getQuantity());
-        auditDetails.put("reorderLevel", product.getReorderLevel());
-        auditDetails.put("expiryDate", product.getExpiryDate());
-        auditDetails.put("imageId", imageId);
-        auditDetails.put("hasImage", imageId != null);
-        auditLogService.logAction("PRODUCT_CREATED", product.getProductId(), userEmail, auditDetails);
-
-        return savedProduct;
-    }
-
-    @Override
-    @Transactional
     public Product updateProduct(String productId, Product product, Locale locale) {
         try {
             return updateProduct(productId, product, null, locale);
@@ -197,21 +204,26 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     @Transactional
-    public Product updateProduct(String productId, Product product, MultipartFile imageFile, Locale locale) throws IOException {
-        logger.debug("[SERVICE] Updating product ID: {}", productId);
+    public Product updateProduct(String productId, Product product, Locale locale, boolean isSyncMode) {
+        logger.debug("[SERVICE] Updating product ID: {}, sync mode: {}", productId, isSyncMode);
         Product existingProduct = productRepository.findByProductId(productId)
                 .orElseThrow(() -> {
                     logger.error("[SERVICE] Product not found for ID: {}", productId);
-
-                    // Log audit for failed update attempt
-                    String userEmail = SecurityContextHolder.getContext().getAuthentication().getName();
-                    Map<String, Object> auditDetails = new HashMap<>();
-                    auditDetails.put("productId", productId);
-                    auditDetails.put("reason", "PRODUCT_NOT_FOUND");
-                    auditLogService.logAction("PRODUCT_UPDATE_FAILED", productId, userEmail, auditDetails);
-
                     return new ResourceNotFoundException("product.not.found", productId);
                 });
+
+        // In sync mode, check if update is necessary - FIXED NULL SAFETY
+        if (isSyncMode) {
+            boolean isUnchanged = existingProduct.getQuantity() == product.getQuantity() &&
+                    Objects.equals(existingProduct.getName(), product.getName()) &&
+                    existingProduct.getPrice() == product.getPrice() &&
+                    Objects.equals(existingProduct.getCategory(), product.getCategory());
+
+            if (isUnchanged) {
+                logger.info("[SERVICE] Product {} unchanged in sync mode, skipping update", productId);
+                return existingProduct;
+            }
+        }
 
         // Track changes for audit log
         Map<String, Object> changes = new HashMap<>();
@@ -223,11 +235,19 @@ public class ProductServiceImpl implements ProductService {
             newValues.put("name", product.getName());
             existingProduct.setName(product.getName());
         }
-        if (product.getCategory() != null && !product.getCategory().equals(existingProduct.getCategory())) {
+
+        // FIXED: Handle null category safely
+        if (product.getCategory() != null && !Objects.equals(product.getCategory(), existingProduct.getCategory())) {
             oldValues.put("category", existingProduct.getCategory());
             newValues.put("category", product.getCategory());
             existingProduct.setCategory(product.getCategory());
+        } else if (product.getCategory() == null && existingProduct.getCategory() != null) {
+            // Handle case where incoming product has null category but existing has a category
+            oldValues.put("category", existingProduct.getCategory());
+            newValues.put("category", null);
+            existingProduct.setCategory(null);
         }
+
         if (product.getPrice() > 0 && product.getPrice() != existingProduct.getPrice()) {
             oldValues.put("price", existingProduct.getPrice());
             newValues.put("price", product.getPrice());
@@ -249,32 +269,12 @@ public class ProductServiceImpl implements ProductService {
             existingProduct.setExpiryDate(product.getExpiryDate());
         }
 
-        String oldImageId = existingProduct.getImageId();
-        String newImageId = null;
-        if (imageFile != null && !imageFile.isEmpty()) {
-            newImageId = fileService.uploadImage(imageFile, "product_" + productId);
-            existingProduct.setImageId(newImageId);
-            oldValues.put("imageId", oldImageId);
-            newValues.put("imageId", newImageId);
-        } else if (product.getImageId() != null) {
-            if (product.getImageId().isEmpty()) {
-                existingProduct.setImageId(null);
-                oldValues.put("imageId", oldImageId);
-                newValues.put("imageId", null);
-            } else if (!product.getImageId().equals(oldImageId)) {
-                existingProduct.setImageId(product.getImageId());
-                oldValues.put("imageId", oldImageId);
-                newValues.put("imageId", product.getImageId());
-            }
-        }
-
         existingProduct.setLastUpdated(new Date());
         Product updatedProduct = productRepository.save(existingProduct);
-        logger.info("[SERVICE] Product updated successfully: {}", updatedProduct.getProductId());
 
-        // Send low stock notification if applicable
+        // Send low stock notification if applicable (only in non-sync mode)
         boolean lowStockNotificationSent = false;
-        if (updatedProduct.getQuantity() < updatedProduct.getReorderLevel()) {
+        if (!isSyncMode && updatedProduct.getQuantity() < updatedProduct.getReorderLevel()) {
             notificationService.sendLowStockNotification(
                     "manager@shop.com",
                     updatedProduct.getName(),
@@ -284,6 +284,8 @@ public class ProductServiceImpl implements ProductService {
             lowStockNotificationSent = true;
         }
 
+        logger.info("[SERVICE] Product updated successfully: {}", updatedProduct.getProductId());
+
         // Log audit for successful update
         String userEmail = SecurityContextHolder.getContext().getAuthentication().getName();
         Map<String, Object> auditDetails = new HashMap<>();
@@ -292,6 +294,7 @@ public class ProductServiceImpl implements ProductService {
         auditDetails.put("lowStockNotificationSent", lowStockNotificationSent);
         auditDetails.put("currentQuantity", updatedProduct.getQuantity());
         auditDetails.put("reorderLevel", updatedProduct.getReorderLevel());
+        auditDetails.put("syncMode", isSyncMode);
         auditLogService.logAction("PRODUCT_UPDATED", productId, userEmail, auditDetails);
 
         return updatedProduct;
@@ -425,6 +428,95 @@ public class ProductServiceImpl implements ProductService {
         return updatedProduct;
     }
 
+    @Override
+    @Transactional
+    public Product updateProduct(String productId, Product product, MultipartFile imageFile, Locale locale) throws IOException {
+        logger.debug("[SERVICE] Updating product with image: {}", productId);
+        Product existingProduct = productRepository.findByProductId(productId)
+                .orElseThrow(() -> {
+                    logger.error("[SERVICE] Product not found for ID: {}", productId);
+                    return new ResourceNotFoundException("product.not.found", productId);
+                });
+
+        // Track changes for audit log
+        Map<String, Object> oldValues = new HashMap<>();
+        Map<String, Object> newValues = new HashMap<>();
+
+        if (product.getName() != null && !product.getName().equals(existingProduct.getName())) {
+            oldValues.put("name", existingProduct.getName());
+            newValues.put("name", product.getName());
+            existingProduct.setName(product.getName());
+        }
+
+        if (product.getCategory() != null && !Objects.equals(product.getCategory(), existingProduct.getCategory())) {
+            oldValues.put("category", existingProduct.getCategory());
+            newValues.put("category", product.getCategory());
+            existingProduct.setCategory(product.getCategory());
+        }
+
+        if (product.getPrice() > 0 && product.getPrice() != existingProduct.getPrice()) {
+            oldValues.put("price", existingProduct.getPrice());
+            newValues.put("price", product.getPrice());
+            existingProduct.setPrice(product.getPrice());
+        }
+
+        if (product.getQuantity() >= 0 && product.getQuantity() != existingProduct.getQuantity()) {
+            oldValues.put("quantity", existingProduct.getQuantity());
+            newValues.put("quantity", product.getQuantity());
+            existingProduct.setQuantity(product.getQuantity());
+        }
+
+        if (product.getReorderLevel() >= 0 && product.getReorderLevel() != existingProduct.getReorderLevel()) {
+            oldValues.put("reorderLevel", existingProduct.getReorderLevel());
+            newValues.put("reorderLevel", product.getReorderLevel());
+            existingProduct.setReorderLevel(product.getReorderLevel());
+        }
+
+        if (product.getExpiryDate() != null && !product.getExpiryDate().equals(existingProduct.getExpiryDate())) {
+            oldValues.put("expiryDate", existingProduct.getExpiryDate());
+            newValues.put("expiryDate", product.getExpiryDate());
+            existingProduct.setExpiryDate(product.getExpiryDate());
+        }
+
+        // Handle image upload
+        String oldImageId = existingProduct.getImageId();
+        if (imageFile != null && !imageFile.isEmpty()) {
+            String newImageId = fileService.uploadImage(imageFile, "product_" + productId);
+            existingProduct.setImageId(newImageId);
+            oldValues.put("imageId", oldImageId);
+            newValues.put("imageId", newImageId);
+        }
+
+        existingProduct.setLastUpdated(new Date());
+        Product updatedProduct = productRepository.save(existingProduct);
+
+        // Send low stock notification if applicable
+        boolean lowStockNotificationSent = false;
+        if (updatedProduct.getQuantity() < updatedProduct.getReorderLevel()) {
+            notificationService.sendLowStockNotification(
+                    "manager@shop.com",
+                    updatedProduct.getName(),
+                    updatedProduct.getQuantity(),
+                    updatedProduct.getReorderLevel()
+            );
+            lowStockNotificationSent = true;
+        }
+
+        logger.info("[SERVICE] Product updated successfully with image: {}", updatedProduct.getProductId());
+
+        // Log audit for successful update
+        String userEmail = SecurityContextHolder.getContext().getAuthentication().getName();
+        Map<String, Object> auditDetails = new HashMap<>();
+        auditDetails.put("changes", newValues);
+        auditDetails.put("oldValues", oldValues);
+        auditDetails.put("lowStockNotificationSent", lowStockNotificationSent);
+        auditDetails.put("currentQuantity", updatedProduct.getQuantity());
+        auditDetails.put("reorderLevel", updatedProduct.getReorderLevel());
+        auditDetails.put("hasImage", updatedProduct.getImageId() != null);
+        auditLogService.logAction("PRODUCT_UPDATED", productId, userEmail, auditDetails);
+
+        return updatedProduct;
+    }
     @Override
     @Transactional
     public Product updateProductQuantity(String productId, int quantity, Locale locale) {

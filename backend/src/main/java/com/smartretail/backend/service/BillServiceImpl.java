@@ -4,6 +4,8 @@ import com.smartretail.backend.models.Bill;
 import com.smartretail.backend.models.Customer;
 import com.smartretail.backend.models.Product;
 import com.smartretail.backend.repository.BillRepository;
+import com.smartretail.backend.repository.CustomerRepository;
+import com.smartretail.backend.repository.ProductRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.MessageSource;
@@ -22,18 +24,25 @@ import java.util.UUID;
 public class BillServiceImpl implements BillService {
     private static final Logger logger = LoggerFactory.getLogger(BillServiceImpl.class);
     private final BillRepository billRepository;
-    private final CustomerService customerService;
+    private final CustomerRepository customerRepository;
+    private final ProductRepository productRepository;
     private final ProductService productService;
     private final NotificationService notificationService;
     private final PdfService pdfService;
     private final MessageSource messageSource;
     private final AuditLogService auditLogService;
 
-    public BillServiceImpl(BillRepository billRepository, CustomerService customerService,
-                           ProductService productService, NotificationService notificationService,
-                           PdfService pdfService, MessageSource messageSource, AuditLogService auditLogService) {
+    public BillServiceImpl(BillRepository billRepository,
+                           CustomerRepository customerRepository,
+                           ProductRepository productRepository,
+                           ProductService productService,
+                           NotificationService notificationService,
+                           PdfService pdfService,
+                           MessageSource messageSource,
+                           AuditLogService auditLogService) {
         this.billRepository = billRepository;
-        this.customerService = customerService;
+        this.customerRepository = customerRepository;
+        this.productRepository = productRepository;
         this.productService = productService;
         this.notificationService = notificationService;
         this.pdfService = pdfService;
@@ -44,68 +53,109 @@ public class BillServiceImpl implements BillService {
     @Override
     @Transactional
     public Bill createBill(Bill bill, Locale locale) {
-        logger.debug("[SERVICE] Creating bill: {}", bill.getBillId());
+        return createBill(bill, locale, false);
+    }
 
-        // Validate required fields
-        if (bill.getAddedBy() == null || bill.getAddedBy().isEmpty()) {
-            logger.error("[SERVICE] AddedBy field is required for bill: {}", bill.getBillId());
-            throw new RuntimeException(
-                    messageSource.getMessage("bill.addedBy.missing.service", new Object[]{bill.getBillId()}, locale));
+    @Override
+    @Transactional
+    public Bill createBill(Bill bill, Locale locale, boolean isSyncMode) {
+        logger.debug("[BILL SERVICE] Creating bill with ID: {}, sync mode: {}", bill.getBillId(), isSyncMode);
+
+        // Check for duplicate bill ID in sync mode
+        if (isSyncMode && billRepository.existsByBillId(bill.getBillId())) {
+            logger.info("[BILL SERVICE] Bill {} already exists, skipping in sync mode", bill.getBillId());
+            return billRepository.findByBillId(bill.getBillId()).orElse(bill);
         }
 
-        if (billRepository.existsByBillId(bill.getBillId())) {
-            logger.error("[SERVICE] Create failed: Bill ID already exists: {}", bill.getBillId());
+        // Validate required fields for non-sync mode
+        if (!isSyncMode) {
+            if (bill.getAddedBy() == null || bill.getAddedBy().isEmpty()) {
+                logger.error("[BILL SERVICE] AddedBy field is required for bill: {}", bill.getBillId());
+                throw new RuntimeException(
+                        messageSource.getMessage("bill.addedBy.missing.service", new Object[]{bill.getBillId()}, locale));
+            }
+        }
+
+        // Validate duplicate bill ID for non-sync mode
+        if (!isSyncMode && billRepository.existsByBillId(bill.getBillId())) {
+            logger.error("[BILL SERVICE] Create failed: Bill ID already exists: {}", bill.getBillId());
             throw new RuntimeException(
                     messageSource.getMessage("bill.exists", new Object[]{bill.getBillId()}, locale));
         }
 
-        // Validate items, calculate total, and update product quantities
+        // Validate customer
+        if (bill.getCustomer() == null || bill.getCustomer().getMobile() == null) {
+            throw new IllegalArgumentException(
+                    messageSource.getMessage("bill.customer.required", null, locale));
+        }
+
+        // Process items and calculate total
         double calculatedTotal = 0.0;
-        // In BillServiceImpl.createBill() method, update the items processing:
         for (Bill.BillItem item : bill.getItems()) {
             Product product = productService.getProductById(item.getProductId(), locale);
 
             // Set product name and price in the bill item
             item.setProductName(product.getName());
-            item.setPrice(product.getPrice()); // 🔥 IMPORTANT: Set the price in the bill item
+            item.setPrice(product.getPrice());
 
             if (item.getQty() <= 0) {
-                logger.error("[SERVICE] Invalid quantity for product {} in bill {}", item.getProductId(), bill.getBillId());
+                logger.error("[BILL SERVICE] Invalid quantity for product {} in bill {}", item.getProductId(), bill.getBillId());
                 throw new RuntimeException(
                         messageSource.getMessage("bill.items.invalid.quantity", new Object[]{bill.getBillId()}, locale));
             }
             if (product.getPrice() <= 0) {
-                logger.error("[SERVICE] Invalid price for product {} in bill {}", item.getProductId(), bill.getBillId());
+                logger.error("[BILL SERVICE] Invalid price for product {} in bill {}", item.getProductId(), bill.getBillId());
                 throw new RuntimeException(
                         messageSource.getMessage("bill.items.invalid.price", new Object[]{bill.getBillId()}, locale));
             }
             calculatedTotal += product.getPrice() * item.getQty();
-            productService.updateProductQuantity(item.getProductId(), item.getQty(), locale);
+
+            // Update product quantity
+            if (!isSyncMode) {
+                productService.updateProductQuantity(item.getProductId(), item.getQty(), locale);
+            } else {
+                // For sync mode, use direct repository update
+                int newQuantity = product.getQuantity() - item.getQty();
+                if (newQuantity < 0) {
+                    throw new IllegalArgumentException(
+                            messageSource.getMessage("product.out.of.stock", new Object[]{item.getProductName()}, locale));
+                }
+                product.setQuantity(newQuantity);
+                productRepository.save(product);
+            }
         }
 
         // Set the calculated total amount
         bill.setTotalAmount(calculatedTotal);
 
-        // 🔥 FIXED: Link bill to customer - CORRECTED LOGIC
-        if (bill.getCustomer() != null && bill.getCustomer().getMobile() != null) {
-            logger.debug("[SERVICE] Processing customer with mobile: {}", bill.getCustomer().getMobile());
-            logger.debug("[SERVICE] Original customer email from request: {}", bill.getCustomer().getEmail());
+        // Process customer
+        logger.debug("[BILL SERVICE] Processing customer with mobile: {}", bill.getCustomer().getMobile());
+        Customer customer = customerRepository.findByMobile(bill.getCustomer().getMobile())
+                .orElseGet(() -> {
+                    Customer newCustomer = new Customer();
+                    newCustomer.setMobile(bill.getCustomer().getMobile());
+                    newCustomer.setName(bill.getCustomer().getName());
+                    newCustomer.setEmail(bill.getCustomer().getEmail());
+                    logger.info("[BILL SERVICE] Creating new customer with mobile: {}", bill.getCustomer().getMobile());
+                    return customerRepository.save(newCustomer);
+                });
 
-            Customer customer = customerService.findOrCreateCustomer(bill.getCustomer(), locale);
-            customerService.addBillId(customer.getMobile(), bill.getBillId());
+        logger.debug("[BILL SERVICE] Processing customer - Name: {}, Email: {}, Mobile: {}",
+                customer.getName(), customer.getEmail(), customer.getMobile());
 
-            // 🔥 CRITICAL FIX: Create a NEW CustomerInfo object with data from database
-            Bill.CustomerInfo updatedCustomerInfo = new Bill.CustomerInfo();
-            updatedCustomerInfo.setName(customer.getName());
-            updatedCustomerInfo.setEmail(customer.getEmail()); // This gets the email from database
-            updatedCustomerInfo.setMobile(customer.getMobile());
+        // Update customer purchase history
+        customer.getPurchaseHistory().add(bill.getBillId());
+        customerRepository.save(customer);
 
-            // Replace the entire customer object in the bill
-            bill.setCustomer(updatedCustomerInfo);
+        // Create updated customer info for bill
+        Bill.CustomerInfo updatedCustomerInfo = new Bill.CustomerInfo();
+        updatedCustomerInfo.setName(customer.getName());
+        updatedCustomerInfo.setEmail(customer.getEmail());
+        updatedCustomerInfo.setMobile(customer.getMobile());
+        bill.setCustomer(updatedCustomerInfo);
 
-            logger.debug("[SERVICE] Updated bill customer - Name: {}, Email: {}, Mobile: {}",
-                    bill.getCustomer().getName(), bill.getCustomer().getEmail(), bill.getCustomer().getMobile());
-        }
+        logger.debug("[BILL SERVICE] Updated bill customer - Name: {}, Email: {}, Mobile: {}",
+                bill.getCustomer().getName(), bill.getCustomer().getEmail(), bill.getCustomer().getMobile());
 
         // Set timestamps and token
         if (bill.getCreatedAt() == null) {
@@ -115,74 +165,85 @@ public class BillServiceImpl implements BillService {
 
         // Save bill
         Bill savedBill = billRepository.save(bill);
-        logger.info("[SERVICE] Bill created successfully: {}", savedBill.getBillId());
+        logger.info("[BILL SERVICE] Bill created successfully: {}", savedBill.getBillId());
 
-        // Log audit for bill creation
-        String userEmail = SecurityContextHolder.getContext().getAuthentication().getName();
-        Map<String, Object> auditDetails = new HashMap<>();
-        auditDetails.put("billId", savedBill.getBillId());
-        auditDetails.put("customerName", bill.getCustomer() != null ? bill.getCustomer().getName() : "N/A");
-        auditDetails.put("customerMobile", bill.getCustomer() != null ? bill.getCustomer().getMobile() : "N/A");
-        auditDetails.put("totalAmount", savedBill.getTotalAmount());
-        auditDetails.put("itemCount", savedBill.getItems().size());
-        auditDetails.put("addedBy", savedBill.getAddedBy());
+        // Log audit for bill creation (only in non-sync mode)
+        if (!isSyncMode) {
+            String userEmail = SecurityContextHolder.getContext().getAuthentication().getName();
+            Map<String, Object> auditDetails = new HashMap<>();
+            auditDetails.put("billId", savedBill.getBillId());
+            auditDetails.put("customerName", bill.getCustomer() != null ? bill.getCustomer().getName() : "N/A");
+            auditDetails.put("customerMobile", bill.getCustomer() != null ? bill.getCustomer().getMobile() : "N/A");
+            auditDetails.put("totalAmount", savedBill.getTotalAmount());
+            auditDetails.put("itemCount", savedBill.getItems().size());
+            auditDetails.put("addedBy", savedBill.getAddedBy());
+            auditDetails.put("syncMode", isSyncMode);
 
-        auditLogService.logAction("BILL_CREATED", savedBill.getBillId(), userEmail, auditDetails);
+            auditLogService.logAction("BILL_CREATED", savedBill.getBillId(), userEmail, auditDetails);
+        }
 
-        // Send notification - ADD DEBUG LOGS
+        // Send notification (ALWAYS send email, regardless of sync mode)
         if (bill.getCustomer() != null && bill.getCustomer().getEmail() != null) {
-            logger.debug("[SERVICE] Attempting to send email to: {}", bill.getCustomer().getEmail());
-            try {
-                // Generate PDF content
-                byte[] pdfContent = pdfService.generateBillPdf(savedBill, locale);
-                logger.debug("[SERVICE] PDF generated successfully, size: {} bytes", pdfContent.length);
-
-                notificationService.sendBillNotification(
-                        bill.getCustomer().getEmail(),
-                        bill.getBillId(),
-                        bill.getTotalAmount(),
-                        pdfContent,
-                        locale
-                );
-                logger.info("[SERVICE] Notification sent for bill: {}", bill.getBillId());
-
-                // Log audit for notification success
-                Map<String, Object> notificationDetails = new HashMap<>();
-                notificationDetails.put("billId", savedBill.getBillId());
-                notificationDetails.put("customerEmail", bill.getCustomer().getEmail());
-                notificationDetails.put("notificationStatus", "SENT");
-                auditLogService.logAction("BILL_NOTIFICATION_SENT", savedBill.getBillId(), userEmail, notificationDetails);
-
-            } catch (Exception e) {
-                logger.error("[SERVICE] Failed to send notification for bill {}: {}", bill.getBillId(), e.getMessage());
-                e.printStackTrace(); // Add stack trace for debugging
-
-                // Log audit for notification failure
-                Map<String, Object> notificationDetails = new HashMap<>();
-                notificationDetails.put("billId", savedBill.getBillId());
-                notificationDetails.put("customerEmail", bill.getCustomer().getEmail());
-                notificationDetails.put("notificationStatus", "FAILED");
-                notificationDetails.put("error", e.getMessage());
-                auditLogService.logAction("BILL_NOTIFICATION_FAILED", savedBill.getBillId(), userEmail, notificationDetails);
-            }
+            sendBillNotification(savedBill, locale, isSyncMode);
         } else {
-            logger.warn("[SERVICE] No customer email available for bill: {}", bill.getBillId());
-            if (bill.getCustomer() == null) {
-                logger.warn("[SERVICE] Customer object is null");
-            } else {
-                logger.warn("[SERVICE] Customer email is null");
-            }
+            logger.warn("[BILL SERVICE] No email address for customer: {}", bill.getCustomer().getMobile());
         }
 
         return savedBill;
     }
 
+    private void sendBillNotification(Bill bill, Locale locale, boolean isSyncMode) {
+        logger.debug("[BILL SERVICE] Attempting to send email to: {}, sync mode: {}",
+                bill.getCustomer().getEmail(), isSyncMode);
+        try {
+            // Generate PDF content
+            byte[] pdfContent = pdfService.generateBillPdf(bill, locale);
+            logger.debug("[BILL SERVICE] PDF generated successfully, size: {} bytes", pdfContent.length);
+
+            notificationService.sendBillNotification(
+                    bill.getCustomer().getEmail(),
+                    bill.getBillId(),
+                    bill.getTotalAmount(),
+                    pdfContent,
+                    locale
+            );
+            logger.info("[BILL SERVICE] Notification sent for bill: {} to: {}",
+                    bill.getBillId(), bill.getCustomer().getEmail());
+
+            // Log audit for notification success
+            if (!isSyncMode) {
+                String userEmail = SecurityContextHolder.getContext().getAuthentication().getName();
+                Map<String, Object> notificationDetails = new HashMap<>();
+                notificationDetails.put("billId", bill.getBillId());
+                notificationDetails.put("customerEmail", bill.getCustomer().getEmail());
+                notificationDetails.put("notificationStatus", "SENT");
+                notificationDetails.put("syncMode", isSyncMode);
+                auditLogService.logAction("BILL_NOTIFICATION_SENT", bill.getBillId(), userEmail, notificationDetails);
+            }
+
+        } catch (Exception e) {
+            logger.error("[BILL SERVICE] Failed to send notification for bill {}: {}", bill.getBillId(), e.getMessage());
+
+            // Log audit for notification failure
+            if (!isSyncMode) {
+                String userEmail = SecurityContextHolder.getContext().getAuthentication().getName();
+                Map<String, Object> notificationDetails = new HashMap<>();
+                notificationDetails.put("billId", bill.getBillId());
+                notificationDetails.put("customerEmail", bill.getCustomer().getEmail());
+                notificationDetails.put("notificationStatus", "FAILED");
+                notificationDetails.put("error", e.getMessage());
+                notificationDetails.put("syncMode", isSyncMode);
+                auditLogService.logAction("BILL_NOTIFICATION_FAILED", bill.getBillId(), userEmail, notificationDetails);
+            }
+        }
+    }
+
     @Override
     public Bill getBillById(String billId, Locale locale) {
-        logger.debug("[SERVICE] Fetching bill with ID: {}", billId);
+        logger.debug("[BILL SERVICE] Fetching bill with ID: {}", billId);
         Bill bill = billRepository.findByBillId(billId)
                 .orElseThrow(() -> {
-                    logger.error("[SERVICE] Bill not found for ID: {}", billId);
+                    logger.error("[BILL SERVICE] Bill not found for ID: {}", billId);
                     return new RuntimeException(
                             messageSource.getMessage("bill.not.found", new Object[]{billId}, locale));
                 });
@@ -200,20 +261,23 @@ public class BillServiceImpl implements BillService {
 
     @Override
     public List<Bill> getAllBills() {
-        logger.debug("[SERVICE] Fetching all bills.");
-
-        // Log audit for bulk bill access
-        String userEmail = SecurityContextHolder.getContext().getAuthentication().getName();
-        Map<String, Object> auditDetails = new HashMap<>();
-        auditDetails.put("action", "FETCH_ALL_BILLS");
-        auditLogService.logAction("BILLS_BULK_ACCESSED", "ALL", userEmail, auditDetails);
-
+        logger.debug("[BILL SERVICE] Fetching all bills");
         return billRepository.findAll();
     }
 
     @Override
+    public List<Bill> getBillsByDateRange(Date startDate, Date endDate, Locale locale) {
+        logger.debug("[BILL SERVICE] Fetching bills from {} to {}", startDate, endDate);
+        if (startDate.after(endDate)) {
+            throw new IllegalArgumentException(
+                    messageSource.getMessage("report.date.range.invalid", new Object[]{startDate, endDate}, locale));
+        }
+        return billRepository.findByCreatedAtBetween(startDate, endDate);
+    }
+
+    @Override
     public boolean validatePdfAccessToken(String billId, String token) {
-        logger.debug("[SERVICE] Validating PDF access token for bill: {}", billId);
+        logger.debug("[BILL SERVICE] Validating PDF access token for bill: {}", billId);
         boolean isValid = billRepository.findByBillId(billId)
                 .map(bill -> token != null && token.equals(bill.getPdfAccessToken()))
                 .orElse(false);
@@ -231,14 +295,7 @@ public class BillServiceImpl implements BillService {
 
     @Override
     public boolean existsByBillId(String billId) {
-        logger.debug("[SERVICE] Checking if bill exists: {}", billId);
-
-        // Log audit for bill existence check
-        String userEmail = SecurityContextHolder.getContext().getAuthentication().getName();
-        Map<String, Object> auditDetails = new HashMap<>();
-        auditDetails.put("billId", billId);
-        auditLogService.logAction("BILL_EXISTENCE_CHECKED", billId, userEmail, auditDetails);
-
+        logger.debug("[BILL SERVICE] Checking if bill exists: {}", billId);
         return billRepository.existsByBillId(billId);
     }
 }

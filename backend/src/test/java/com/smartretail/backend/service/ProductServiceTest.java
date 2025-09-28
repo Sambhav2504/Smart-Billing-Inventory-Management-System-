@@ -36,6 +36,9 @@ class ProductServiceTest {
     @Mock
     private MessageSource messageSource;
 
+    @Mock
+    private AuditLogService auditLogService;
+
     @InjectMocks
     private ProductServiceImpl productService;
 
@@ -64,6 +67,8 @@ class ProductServiceTest {
                 .thenReturn("Product not found: p12345678");
         when(messageSource.getMessage(eq("product.restock.invalid.quantity"), any(), eq(locale)))
                 .thenReturn("Restock quantity must be positive");
+        when(messageSource.getMessage(eq("product.update.failed"), any(), eq(locale)))
+                .thenReturn("Product update failed: p12345678");
     }
 
     @Test
@@ -154,6 +159,160 @@ class ProductServiceTest {
 
         ProductNotFoundException exception = assertThrows(ProductNotFoundException.class,
                 () -> productService.getProductById("p12345678", locale));
+        assertEquals("Product not found: p12345678", exception.getMessage());
+    }
+
+    // NEW TESTS FOR SYNC MODE FUNCTIONALITY
+
+    @Test
+    void testUpdateProductSyncMode_Success() {
+        Product updatedProduct = new Product();
+        updatedProduct.setProductId("p12345678");
+        updatedProduct.setName("Laptop Pro");
+        updatedProduct.setCategory("Electronics");
+        updatedProduct.setPrice(1099.99);
+        updatedProduct.setQuantity(15);
+
+        when(productRepository.findByProductId("p12345678")).thenReturn(Optional.of(product));
+        when(productRepository.save(any(Product.class))).thenReturn(updatedProduct);
+
+        Product result = productService.updateProduct("p12345678", updatedProduct, locale, true);
+
+        assertNotNull(result);
+        assertEquals("Laptop Pro", result.getName());
+        assertEquals(1099.99, result.getPrice());
+        assertEquals(15, result.getQuantity());
+        verify(productRepository).save(any(Product.class));
+    }
+
+    @Test
+    void testUpdateProductSyncMode_Unchanged_SkipsUpdate() {
+        Product unchangedProduct = new Product();
+        unchangedProduct.setProductId("p12345678");
+        unchangedProduct.setName("Laptop");
+        unchangedProduct.setCategory("Electronics");
+        unchangedProduct.setPrice(999.99);
+        unchangedProduct.setQuantity(8);
+
+        when(productRepository.findByProductId("p12345678")).thenReturn(Optional.of(product));
+
+        Product result = productService.updateProduct("p12345678", unchangedProduct, locale, true);
+
+        assertNotNull(result);
+        assertEquals("Laptop", result.getName());
+        assertEquals(999.99, result.getPrice());
+        assertEquals(8, result.getQuantity());
+        // Should not save since no changes
+        verify(productRepository, never()).save(any(Product.class));
+    }
+
+    @Test
+    void testUpdateProductSyncMode_NullCategory_Success() {
+        Product updatedProduct = new Product();
+        updatedProduct.setProductId("p12345678");
+        updatedProduct.setName("Laptop");
+        updatedProduct.setCategory(null); // Null category
+        updatedProduct.setPrice(999.99);
+        updatedProduct.setQuantity(10); // Changed quantity
+
+        when(productRepository.findByProductId("p12345678")).thenReturn(Optional.of(product));
+        when(productRepository.save(any(Product.class))).thenReturn(updatedProduct);
+
+        Product result = productService.updateProduct("p12345678", updatedProduct, locale, true);
+
+        assertNotNull(result);
+        assertEquals(10, result.getQuantity());
+        verify(productRepository).save(any(Product.class));
+    }
+
+    @Test
+    void testUpdateProductSyncMode_ProductNotFound() {
+        Product updatedProduct = new Product();
+        updatedProduct.setProductId("p12345678");
+        updatedProduct.setName("Laptop Pro");
+
+        when(productRepository.findByProductId("p12345678")).thenReturn(Optional.empty());
+
+        assertThrows(RuntimeException.class,
+                () -> productService.updateProduct("p12345678", updatedProduct, locale, true));
+    }
+
+    @Test
+    void testUpdateProductQuantity_Success() {
+        when(productRepository.findByProductId("p12345678")).thenReturn(Optional.of(product));
+        when(productRepository.save(any(Product.class))).thenReturn(product);
+
+        Product result = productService.updateProductQuantity("p12345678", 3, locale);
+
+        assertEquals(5, result.getQuantity()); // 8 - 3 = 5
+        verify(productRepository).save(product);
+    }
+
+    @Test
+    void testUpdateProductQuantity_InsufficientStock() {
+        when(productRepository.findByProductId("p12345678")).thenReturn(Optional.of(product));
+
+        RuntimeException exception = assertThrows(RuntimeException.class,
+                () -> productService.updateProductQuantity("p12345678", 10, locale));
+        assertTrue(exception.getMessage().contains("p12345678"));
+    }
+
+    @Test
+    void testUpdateProductQuantity_ProductNotFound() {
+        when(productRepository.findByProductId("p12345678")).thenReturn(Optional.empty());
+
+        ProductNotFoundException exception = assertThrows(ProductNotFoundException.class,
+                () -> productService.updateProductQuantity("p12345678", 3, locale));
+        assertEquals("Product not found: p12345678", exception.getMessage());
+    }
+
+    @Test
+    void testExistsByProductId_True() {
+        when(productRepository.existsByProductId("p12345678")).thenReturn(true);
+
+        boolean exists = productService.existsByProductId("p12345678");
+
+        assertTrue(exists);
+        verify(productRepository).existsByProductId("p12345678");
+    }
+
+    @Test
+    void testExistsByProductId_False() {
+        when(productRepository.existsByProductId("p12345678")).thenReturn(false);
+
+        boolean exists = productService.existsByProductId("p12345678");
+
+        assertFalse(exists);
+        verify(productRepository).existsByProductId("p12345678");
+    }
+
+    @Test
+    void testGetAllProducts() {
+        when(productRepository.findAll()).thenReturn(Arrays.asList(product));
+
+        List<Product> products = productService.getAllProducts();
+
+        assertEquals(1, products.size());
+        assertEquals("p12345678", products.get(0).getProductId());
+        verify(productRepository).findAll();
+    }
+
+    @Test
+    void testDeleteProduct_Success() {
+        when(productRepository.findByProductId("p12345678")).thenReturn(Optional.of(product));
+        doNothing().when(productRepository).deleteByProductId("p12345678");
+
+        productService.deleteProduct("p12345678", locale);
+
+        verify(productRepository).deleteByProductId("p12345678");
+    }
+
+    @Test
+    void testDeleteProduct_NotFound() {
+        when(productRepository.findByProductId("p12345678")).thenReturn(Optional.empty());
+
+        ProductNotFoundException exception = assertThrows(ProductNotFoundException.class,
+                () -> productService.deleteProduct("p12345678", locale));
         assertEquals("Product not found: p12345678", exception.getMessage());
     }
 }
