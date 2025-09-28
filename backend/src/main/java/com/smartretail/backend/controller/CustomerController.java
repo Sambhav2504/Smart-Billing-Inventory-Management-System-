@@ -1,24 +1,32 @@
 package com.smartretail.backend.controller;
 
+import com.smartretail.backend.models.Bill;
 import com.smartretail.backend.models.Customer;
 import com.smartretail.backend.service.CustomerService;
+import com.smartretail.backend.service.ReminderService;
 import jakarta.validation.Valid;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/customers")
 public class CustomerController {
+    private static final Logger logger = LoggerFactory.getLogger(CustomerController.class);
     private final CustomerService customerService;
+    private final ReminderService reminderService;
 
-    @Autowired
-    public CustomerController(CustomerService customerService) {
+    public CustomerController(CustomerService customerService, ReminderService reminderService) {
         this.customerService = customerService;
+        this.reminderService = reminderService;
     }
 
     @PostMapping
@@ -26,14 +34,17 @@ public class CustomerController {
     public ResponseEntity<Customer> createCustomer(
             @Valid @RequestBody Customer customer,
             @RequestHeader(value = "Accept-Language", defaultValue = "en") Locale locale) {
+        logger.debug("Creating customer with mobile: {}", customer.getMobile());
         Customer savedCustomer = customerService.createCustomer(customer, locale);
         return ResponseEntity.status(201).body(savedCustomer);
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('OWNER', 'MANAGER', 'CASHIER')")
     public ResponseEntity<Customer> getCustomerById(
             @PathVariable String id,
             @RequestHeader(value = "Accept-Language", defaultValue = "en") Locale locale) {
+        logger.debug("Fetching customer with ID: {}", id);
         Customer customer = customerService.getCustomerById(id, locale);
         return ResponseEntity.ok(customer);
     }
@@ -42,6 +53,7 @@ public class CustomerController {
     @PreAuthorize("hasAnyRole('OWNER', 'MANAGER', 'CASHIER')")
     public ResponseEntity<List<Customer>> getAllCustomers(
             @RequestHeader(value = "Accept-Language", defaultValue = "en") Locale locale) {
+        logger.debug("Fetching all customers");
         List<Customer> customers = customerService.getAllCustomers();
         return ResponseEntity.ok(customers);
     }
@@ -52,6 +64,7 @@ public class CustomerController {
             @PathVariable String id,
             @Valid @RequestBody Customer customer,
             @RequestHeader(value = "Accept-Language", defaultValue = "en") Locale locale) {
+        logger.debug("Updating customer with ID: {}", id);
         Customer updatedCustomer = customerService.updateCustomer(id, customer, locale);
         return ResponseEntity.ok(updatedCustomer);
     }
@@ -61,16 +74,29 @@ public class CustomerController {
     public ResponseEntity<Void> deleteCustomer(
             @PathVariable String id,
             @RequestHeader(value = "Accept-Language", defaultValue = "en") Locale locale) {
+        logger.debug("Deleting customer with ID: {}", id);
         customerService.deleteCustomer(id, locale);
         return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/{id}/purchase-history")
     @PreAuthorize("hasAnyRole('OWNER', 'MANAGER', 'CASHIER')")
-    public ResponseEntity<List<String>> getCustomerPurchaseHistory(
+    public ResponseEntity<List<Bill>> getCustomerPurchaseHistory(
             @PathVariable String id,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) Date startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) Date endDate,
             @RequestHeader(value = "Accept-Language", defaultValue = "en") Locale locale) {
-        List<String> purchaseHistory = customerService.getCustomerPurchaseHistory(id);
+        logger.debug("Fetching purchase history for customer ID: {}, startDate: {}, endDate: {}", id, startDate, endDate);
+        List<Bill> purchaseHistory = customerService.getCustomerPurchaseHistory(id, startDate, endDate, locale);
         return ResponseEntity.ok(purchaseHistory);
+    }
+
+    @PostMapping("/reminders")
+    @PreAuthorize("hasAnyRole('OWNER', 'MANAGER')")
+    public ResponseEntity<Map<String, String>> triggerMonthlyPurchaseReminders(
+            @RequestHeader(value = "Accept-Language", defaultValue = "en") Locale locale) {
+        logger.debug("Triggering monthly purchase reminders manually");
+        reminderService.sendMonthlyPurchaseReminders();
+        return ResponseEntity.ok(Map.of("message", "Monthly purchase reminders triggered successfully"));
     }
 }

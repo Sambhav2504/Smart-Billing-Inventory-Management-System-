@@ -1,66 +1,91 @@
 package com.smartretail.backend.controller;
 
-import com.smartretail.backend.service.AnalyticsProxyService;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
+import com.smartretail.backend.service.AnalyticsService;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Map;
+
 @RestController
 @RequestMapping("/api/analytics")
 public class AnalyticsController {
-    private final AnalyticsProxyService proxyService;
+    private final AnalyticsService analyticsService;
 
-    public AnalyticsController(AnalyticsProxyService proxyService) {
-        this.proxyService = proxyService;
+    public AnalyticsController(AnalyticsService analyticsService) {
+        this.analyticsService = analyticsService;
     }
 
-    @GetMapping("/daily-sales")
+    @GetMapping("/daily")
     @PreAuthorize("hasAnyRole('OWNER','MANAGER')")
     public ResponseEntity<?> getDailySales() {
         try {
-            Object data = proxyService.getFromFlask("/analytics/daily-sales");
+            Object data = analyticsService.getDailySales();
             return ResponseEntity.ok(data);
         } catch (Exception e) {
-            return ResponseEntity.status(500).body("Flask service unavailable: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(Map.of("error", "Analytics service unavailable: " + e.getMessage()));
         }
     }
 
-    @GetMapping("/monthly-sales")
+    @GetMapping("/monthly")
     @PreAuthorize("hasAnyRole('OWNER','MANAGER')")
-    public Object getMonthlySales() {
-        return proxyService.getFromFlask("/analytics/monthly-sales");
+    public ResponseEntity<?> getMonthlySales() {
+        try {
+            Object data = analyticsService.getMonthlySales();
+            return ResponseEntity.ok(data);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(Map.of("error", "Analytics service unavailable: " + e.getMessage()));
+        }
     }
 
     @GetMapping("/top-products")
     @PreAuthorize("hasAnyRole('OWNER','MANAGER')")
-    public Object getTopProducts() {
-        return proxyService.getFromFlask("/analytics/top-products");
+    public ResponseEntity<?> getTopProducts() {
+        try {
+            Object data = analyticsService.getTopProducts();
+            return ResponseEntity.ok(data);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(Map.of("error", "Analytics service unavailable: " + e.getMessage()));
+        }
     }
 
     @GetMapping("/revenue-trend")
     @PreAuthorize("hasAnyRole('OWNER','MANAGER')")
-    public Object getRevenueTrend(@RequestParam("from") String from,
-                                  @RequestParam("to") String to) {
-        return proxyService.getFromFlask("/analytics/revenue-trend?from=" + from + "&to=" + to);
+    public ResponseEntity<?> getRevenueTrend() {
+        try {
+            Object data = analyticsService.getRevenueTrend();
+            return ResponseEntity.ok(data);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(Map.of("error", "Analytics service unavailable: " + e.getMessage()));
+        }
     }
 
-    @GetMapping("/reports/sales/pdf")
+    @GetMapping("/report")
     @PreAuthorize("hasAnyRole('OWNER','MANAGER')")
-    public ResponseEntity<byte[]> getSalesReportPdf(@RequestParam("from") String from,
-                                                    @RequestParam("to") String to,
-                                                    @RequestParam(value = "category", required = false) String category) {
-        String path = "/api/reports/sales/pdf?from=" + from + "&to=" + to;
-        if (category != null) {
-            path += "&category=" + category;
+    public ResponseEntity<?> getReport() {
+        try {
+            Object data = analyticsService.getReport();
+            return ResponseEntity.ok(data);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(Map.of("error", "Analytics service unavailable: " + e.getMessage()));
         }
+    }
 
-        byte[] pdf = proxyService.getPdfFromFlask(path);
-
-        return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=sales-report.pdf")
-                .contentType(MediaType.APPLICATION_PDF)
-                .body(pdf);
+    @GetMapping("/report/text")
+    @PreAuthorize("hasAnyRole('OWNER','MANAGER')")
+    public ResponseEntity<?> getTextReport() {
+        try {
+            Object data = analyticsService.getTextReport();
+            return ResponseEntity.ok(data);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(Map.of("error", "Analytics service unavailable: " + e.getMessage()));
+        }
     }
 }

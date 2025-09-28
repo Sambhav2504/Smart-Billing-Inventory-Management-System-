@@ -1,8 +1,10 @@
+
 package com.smartretail.backend.service;
 
 import com.smartretail.backend.models.Bill;
 import com.smartretail.backend.models.Customer;
 
+import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
@@ -14,6 +16,5 @@ public interface CustomerService {
     List<Customer> getAllCustomers();
     Customer updateCustomer(String id, Customer customer, Locale locale);
     void deleteCustomer(String id, Locale locale);
-    List<String> getCustomerPurchaseHistory(String customerId);
+    List<Bill> getCustomerPurchaseHistory(String customerId, Date startDate, Date endDate, Locale locale);
 }
-
