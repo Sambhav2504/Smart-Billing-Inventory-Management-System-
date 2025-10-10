@@ -1,6 +1,8 @@
 package com.smartretail.backend.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.opencsv.bean.CsvToBeanBuilder;
+import com.smartretail.backend.dto.ProductRequest;
 import com.smartretail.backend.models.Product;
 import com.smartretail.backend.service.FileService;
 import com.smartretail.backend.service.ProductService;
@@ -11,6 +13,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.MessageSource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -36,13 +39,31 @@ public class ProductController {
     }
 
     @PostMapping
-    public ResponseEntity<Product> createProduct(
-            @RequestPart("product") Product product,
+    @PreAuthorize("hasRole('MANAGER')")
+    public ResponseEntity<Map<String, String>> createProduct(
+            @RequestParam("product") String productJson,
             @RequestPart(value = "imageFile", required = false) MultipartFile imageFile,
             Locale locale) throws IOException {
-        logger.debug("Creating product: {}", product.getProductId());
+
+        // This handles the multipart case where product is sent as JSON string
+        return createProductInternal(productJson, imageFile, locale);
+    }
+
+    // Helper method that does the actual work
+    private ResponseEntity<Map<String, String>> createProductInternal(String productJson,
+                                                                      MultipartFile imageFile, Locale locale) throws IOException {
+
+        ObjectMapper objectMapper = new ObjectMapper();
+        ProductRequest request = objectMapper.readValue(productJson, ProductRequest.class);
+
+        Product product = convertToProductEntity(request);
         Product createdProduct = productService.createProduct(product, imageFile, locale);
-        return new ResponseEntity<>(createdProduct, HttpStatus.CREATED);
+
+        Map<String, String> response = new HashMap<>();
+        response.put("message", "Product added successfully");
+        response.put("productId", createdProduct.getProductId());
+
+        return new ResponseEntity<>(response, HttpStatus.CREATED);
     }
 
     @GetMapping("/{productId}")
@@ -57,6 +78,76 @@ public class ProductController {
         logger.debug("Fetching all products");
         List<Product> products = productService.getAllProducts();
         return ResponseEntity.ok(products);
+    }
+
+    private Product convertToProductEntity(ProductRequest request) {
+        Product product = new Product();
+        product.setProductId(request.getProductId());
+        product.setName(request.getName());
+        product.setCategory(request.getCategory());
+        product.setPrice(request.getPrice());
+        product.setQuantity(request.getQuantity());
+
+        // Handle expiry date parsing if provided
+        if (request.getExpiryDate() != null && !request.getExpiryDate().isEmpty()) {
+            try {
+                SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd");
+                product.setExpiryDate(dateFormat.parse(request.getExpiryDate()));
+            } catch (Exception e) {
+                logger.warn("Failed to parse expiry date: {}", request.getExpiryDate());
+                // Continue without expiry date
+            }
+        }
+
+        // Set defaults for required fields
+        product.setMinQuantity(request.getMinQuantity() > 0 ? request.getMinQuantity() : 5);
+        product.setReorderLevel(request.getReorderLevel() > 0 ? request.getReorderLevel() : 10);
+        product.setSupplierEmail(request.getSupplierEmail() != null ? request.getSupplierEmail() : "default@supplier.com");
+        product.setImageUrl(request.getImageUrl()); // This will set imageUrl, imageId will be handled by service
+        product.setAddedBy("system"); // Default value, you might want to get this from authentication
+
+        return product;
+    }
+
+    @PutMapping("/{productId}")
+    @PreAuthorize("hasRole('MANAGER')")
+    public ResponseEntity<Map<String, String>> updateProduct(
+            @PathVariable String productId,
+            @RequestBody Map<String, Object> updates,
+            Locale locale) {
+
+        logger.debug("Updating product: {}", productId);
+
+        // Convert the updates map to a Product object with only the changed fields
+        Product productUpdates = new Product();
+
+        if (updates.containsKey("price")) {
+            productUpdates.setPrice(Double.parseDouble(updates.get("price").toString()));
+        }
+        if (updates.containsKey("quantity")) {
+            productUpdates.setQuantity(Integer.parseInt(updates.get("quantity").toString()));
+        }
+        if (updates.containsKey("name")) {
+            productUpdates.setName(updates.get("name").toString());
+        }
+        if (updates.containsKey("category")) {
+            productUpdates.setCategory(updates.get("category").toString());
+        }
+        if (updates.containsKey("minQuantity")) {
+            productUpdates.setMinQuantity(Integer.parseInt(updates.get("minQuantity").toString()));
+        }
+        if (updates.containsKey("reorderLevel")) {
+            productUpdates.setReorderLevel(Integer.parseInt(updates.get("reorderLevel").toString()));
+        }
+
+        // Use your existing service method
+        Product updatedProduct = productService.updateProduct(productId, productUpdates, locale);
+
+        Map<String, String> response = new HashMap<>();
+        response.put("message", "Product updated successfully");
+        response.put("productId", updatedProduct.getProductId());
+
+        return ResponseEntity.ok(response);
     }
 
     @PostMapping("/bulk")

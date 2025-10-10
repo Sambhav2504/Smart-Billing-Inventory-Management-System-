@@ -7,6 +7,8 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -21,6 +23,7 @@ import java.util.Optional;
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
+    private static final Logger logger = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
     private final JwtUtil jwtUtil;
     private final AuthService authService;
 
@@ -41,24 +44,37 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             try {
                 Claims claims = jwtUtil.validateToken(jwt);
                 email = claims.getSubject();
+                logger.debug("[JWT] Extracted email from token: {}", email);
             } catch (Exception e) {
-                System.out.println("[JWT] Token validation failed: " + e.getMessage());
+                logger.error("[JWT] Token validation failed: {}", e.getMessage());
             }
+        } else {
+            logger.debug("[JWT] No Bearer token found in Authorization header");
         }
 
         if (email != null && SecurityContextHolder.getContext().getAuthentication() == null) {
             Optional<User> optionalUser = Optional.ofNullable(authService.getUserByEmail(email));
             if (optionalUser.isPresent()) {
                 User user = optionalUser.get();
-                String role = "ROLE_" + user.getRole();
+
+                // FIX: Use getRole() instead of getRoles()
+                String role = user.getRole();
+                String springRole = "ROLE_" + role;
+
+                var authorities = Collections.singletonList(
+                        new SimpleGrantedAuthority(springRole)
+                );
+
                 UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
-                        email,
+                        user, // Pass the full User object as principal
                         null,
-                        Collections.singletonList(new SimpleGrantedAuthority(role))
+                        authorities
                 );
                 authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                 SecurityContextHolder.getContext().setAuthentication(authToken);
-                System.out.println("[JWT] Authentication set for user: " + email + " with Spring role: " + role);
+                logger.info("[JWT] Authentication set for user: {} with role: {}", email, springRole);
+            } else {
+                logger.warn("[JWT] User not found for email: {}", email);
             }
         }
 

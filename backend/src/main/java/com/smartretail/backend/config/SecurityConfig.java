@@ -4,6 +4,7 @@ import com.smartretail.backend.security.JwtAuthenticationFilter;
 import com.smartretail.backend.service.UserService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -27,7 +28,7 @@ public class SecurityConfig {
     private final JwtAuthenticationFilter jwtAuthFilter;
     private final UserService userService;
 
-    public SecurityConfig(JwtAuthenticationFilter jwtAuthFilter, UserService userService) {
+    public SecurityConfig(JwtAuthenticationFilter jwtAuthFilter, @Lazy UserService userService) {
         this.jwtAuthFilter = jwtAuthFilter;
         this.userService = userService;
     }
@@ -38,6 +39,7 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/**", "/error").permitAll()
+                        .requestMatchers("/api/users/**").hasRole("OWNER")
                         .requestMatchers("/api/billing/*/pdf").permitAll()
                         .requestMatchers("/api/products/**", "/api/billing/**").hasRole("MANAGER")
                         .requestMatchers("/api/customers/**").hasAnyRole("MANAGER", "CASHIER")
@@ -64,6 +66,7 @@ public class SecurityConfig {
         return source;
     }
 
+    // Keep this bean - it's essential for authentication!
     @Bean
     public UserDetailsService userDetailsService() {
         return userService;
