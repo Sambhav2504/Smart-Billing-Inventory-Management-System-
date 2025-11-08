@@ -542,9 +542,7 @@ def shutdown():
     stop_self_ping()
 
 # -----------------------
-# Run Server
+# Run Server (Render compatible)
 # -----------------------
-if __name__ == "__main__":
-    # Start self-ping immediately when running directly
-    start_self_ping()
-    app.run(port=5001, debug=True)
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=10000)
