@@ -28,7 +28,6 @@ db = mongo.cx[db_name]
 # -----------------------
 # Self-Ping Configuration
 # -----------------------
-# UPDATED THIS LINE AS REQUESTED
 SELF_PING_URL = os.getenv("SELF_PING_URL", "https://smartretailsystem2.onrender.com")
 PING_INTERVAL = 300  # 5 minutes in seconds
 is_pinging = False
@@ -140,6 +139,19 @@ def get_filtered_bills():
     bills = list(db.bills.find(query))
     print(f"📊 Found {len(bills)} bills matching the criteria")
     return bills
+
+# -----------------------
+# Application Startup
+# -----------------------
+@app.before_request
+def before_first_request():
+    """
+    Start self-ping service on first request
+    Using before_request with a flag to ensure it only runs once
+    """
+    if not hasattr(app, 'self_ping_started'):
+        start_self_ping()
+        app.self_ping_started = True
 
 # -----------------------
 # API Endpoints
@@ -523,14 +535,6 @@ def sales_report_text():
     # --- End of modifications ---
 
     return jsonify({"report": " ".join(report_lines)})
-
-# -----------------------
-# Application Startup & Shutdown
-# -----------------------
-@app.before_first_request
-def startup():
-    """Start self-ping service on first request"""
-    start_self_ping()
 
 @atexit.register
 def shutdown():
