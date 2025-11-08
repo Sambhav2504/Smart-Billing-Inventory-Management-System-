@@ -77,7 +77,8 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(Arrays.asList(
-                "https://smartretailsystem.vercel.app", // Your Vercel domain
+                "https://smartretailsystem.vercel.app", // Your main domain
+                "https://*.vercel.app", // Allow all Vercel preview domains
                 "http://localhost:3000", 
                 "http://localhost:5173", 
                 "http://localhost:8080"
