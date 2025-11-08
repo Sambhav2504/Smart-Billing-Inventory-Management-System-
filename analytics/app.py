@@ -28,7 +28,8 @@ db = mongo.cx[db_name]
 # -----------------------
 # Self-Ping Configuration
 # -----------------------
-SELF_PING_URL = os.getenv("SELF_PING_URL", "https://your-analytics-service.onrender.com")
+# UPDATED THIS LINE AS REQUESTED
+SELF_PING_URL = os.getenv("SELF_PING_URL", "https://smartretailsystem2.onrender.com")
 PING_INTERVAL = 300  # 5 minutes in seconds
 is_pinging = False
 ping_thread = None
@@ -45,6 +46,7 @@ def self_ping():
     while is_pinging:
         try:
             print(f"🔄 Self-pinging to keep service alive: {SELF_PING_URL}")
+            # This line appends a '/', so the URL above should not have one
             response = requests.get(f"{SELF_PING_URL}/", timeout=10)
             if response.status_code == 200:
                 print("✅ Self-ping successful")
