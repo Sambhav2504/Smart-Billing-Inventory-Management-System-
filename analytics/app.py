@@ -6,7 +6,11 @@ from datetime import datetime
 from dotenv import load_dotenv
 from dateutil import parser
 import os
-from translations import get_translation as t  # <-- NEW IMPORT
+from translations import get_translation as t
+import threading
+import time
+import requests
+import atexit
 
 # -----------------------
 # Initialization
@@ -20,6 +24,61 @@ app.config["MONGO_URI"] = os.getenv("MONGO_URI")
 db_name = os.getenv("DB_NAME")
 mongo = PyMongo(app)
 db = mongo.cx[db_name]
+
+# -----------------------
+# Self-Ping Configuration
+# -----------------------
+SELF_PING_URL = os.getenv("SELF_PING_URL", "https://your-analytics-service.onrender.com")
+PING_INTERVAL = 300  # 5 minutes in seconds
+is_pinging = False
+ping_thread = None
+
+# -----------------------
+# Self-Ping Function
+# -----------------------
+def self_ping():
+    """
+    Periodically ping the own service to keep it alive
+    """
+    global is_pinging
+    
+    while is_pinging:
+        try:
+            print(f"🔄 Self-pinging to keep service alive: {SELF_PING_URL}")
+            response = requests.get(f"{SELF_PING_URL}/", timeout=10)
+            if response.status_code == 200:
+                print("✅ Self-ping successful")
+            else:
+                print(f"⚠️ Self-ping returned status: {response.status_code}")
+        except requests.exceptions.RequestException as e:
+            print(f"❌ Self-ping failed: {e}")
+        except Exception as e:
+            print(f"❌ Unexpected error in self-ping: {e}")
+        
+        # Wait for the interval
+        time.sleep(PING_INTERVAL)
+
+def start_self_ping():
+    """
+    Start the self-ping thread
+    """
+    global is_pinging, ping_thread
+    
+    if SELF_PING_URL.startswith("https://") and not is_pinging:
+        is_pinging = True
+        ping_thread = threading.Thread(target=self_ping, daemon=True)
+        ping_thread.start()
+        print(f"🚀 Started self-ping service. Interval: {PING_INTERVAL} seconds")
+    else:
+        print("ℹ️ Self-ping disabled or already running")
+
+def stop_self_ping():
+    """
+    Stop the self-ping thread
+    """
+    global is_pinging
+    is_pinging = False
+    print("🛑 Self-ping service stopped")
 
 # -----------------------
 # Helper Functions
@@ -60,7 +119,6 @@ def normalize_bills(raw_bills):
         print(f"   Products found: {df['name'].unique().tolist()[:5]}")
     return df
 
-
 def get_filtered_bills():
     """Apply date filtering if provided"""
     start_str = request.args.get("startDate")
@@ -87,8 +145,28 @@ def get_filtered_bills():
 
 @app.route("/")
 def home():
-    return jsonify({"status": "Analytics API running 🚀"})
+    return jsonify({
+        "status": "Analytics API running 🚀", 
+        "self_ping": "active" if is_pinging else "inactive",
+        "ping_interval": f"{PING_INTERVAL} seconds"
+    })
 
+@app.route("/health")
+def health_check():
+    """Health check endpoint for monitoring"""
+    try:
+        # Test database connection
+        db.command('ping')
+        db_status = "healthy"
+    except Exception as e:
+        db_status = f"unhealthy: {str(e)}"
+    
+    return jsonify({
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "database": db_status,
+        "self_ping": "active" if is_pinging else "inactive"
+    })
 
 @app.route("/analytics/daily")
 def daily_sales():
@@ -109,7 +187,6 @@ def daily_sales():
             "message": "No billing data"
         }), 200
 
-
     summary = (
         df.groupby(df["date"].dt.date)["revenue"]
         .sum()
@@ -118,7 +195,6 @@ def daily_sales():
     )
     summary["day"] = summary["day"].astype(str)
     return jsonify(summary.to_dict(orient="records"))
-
 
 @app.route("/analytics/monthly")
 def monthly_sales():
@@ -139,7 +215,6 @@ def monthly_sales():
             "message": "No billing data"
         }), 200
 
-
     summary = (
         df.groupby(df["date"].dt.to_period("M"))["revenue"]
         .sum()
@@ -148,7 +223,6 @@ def monthly_sales():
     summary["date"] = summary["date"].astype(str)
     summary = summary.rename(columns={"date": "month", "revenue": "totalSales"})
     return jsonify(summary.to_dict(orient="records"))
-
 
 @app.route("/analytics/weekly")
 def weekly_sales():
@@ -169,7 +243,6 @@ def weekly_sales():
             "message": "No billing data"
         }), 200
 
-
     summary = (
         df.groupby(df["date"].dt.to_period("W"))["revenue"]
         .sum()
@@ -178,7 +251,6 @@ def weekly_sales():
     summary["date"] = summary["date"].astype(str)
     summary = summary.rename(columns={"date": "week", "revenue": "totalSales"})
     return jsonify(summary.to_dict(orient="records"))
-
 
 @app.route("/analytics/top-products")
 def top_products():
@@ -199,7 +271,6 @@ def top_products():
             },
             "message": "No billing data"
         }), 200
-
 
     # Fetch all products for name and category lookup
     products = list(db.products.find({}))
@@ -228,7 +299,6 @@ def top_products():
 
     print(f"🏆 Top {len(summary)} products calculated")
     return jsonify(summary.to_dict(orient="records"))
-
 
 @app.route("/analytics/revenue-trend")
 def revenue_trend():
@@ -259,7 +329,6 @@ def revenue_trend():
     trend["day"] = trend["day"].astype(str)
     return jsonify(trend.to_dict(orient="records"))
 
-
 @app.route("/analytics/report")
 def sales_report():
     """Comprehensive sales report filtered by date range"""
@@ -279,7 +348,6 @@ def sales_report():
             },
             "message": "No billing data"
         }), 200
-
 
     # Fetch all products for name and category lookup
     products = list(db.products.find({}))
@@ -355,7 +423,6 @@ def sales_report():
 
     print(f"📈 Report generated with {len(top_products)} top products")
     return jsonify(report)
-
 
 @app.route("/analytics/report/text")
 def sales_report_text():
@@ -456,7 +523,22 @@ def sales_report_text():
     return jsonify({"report": " ".join(report_lines)})
 
 # -----------------------
+# Application Startup & Shutdown
+# -----------------------
+@app.before_first_request
+def startup():
+    """Start self-ping service on first request"""
+    start_self_ping()
+
+@atexit.register
+def shutdown():
+    """Cleanup on application shutdown"""
+    stop_self_ping()
+
+# -----------------------
 # Run Server
 # -----------------------
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    # Start self-ping immediately when running directly
+    start_self_ping()
+    app.run(port=5001, debug=True)
