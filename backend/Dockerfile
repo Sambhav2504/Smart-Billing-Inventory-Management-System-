@@ -1,17 +1,20 @@
-# Use OpenJDK 17
+# Use JDK 17
 FROM eclipse-temurin:17-jdk-alpine
 
-# Create app directory
+# Set working directory
 WORKDIR /app
 
-# Copy Maven wrapper & project files
+# Copy everything
 COPY . .
 
-# Build the app (skip tests to save time)
+# Give execute permission to Maven wrapper
+RUN chmod +x mvnw
+
+# Build the app without tests
 RUN ./mvnw -DskipTests package
 
-# Expose port (same as Spring Boot default)
+# Expose backend port
 EXPOSE 8080
 
-# Run jar file
+# Run jar
 CMD ["java", "-jar", "target/*.jar"]
