@@ -141,15 +141,15 @@ def get_filtered_bills():
     return bills
 
 # -----------------------
-# Application Startup
+# Application Startup (Modern Flask 3.x compatible)
 # -----------------------
 @app.before_request
-def before_first_request():
+def start_pinger_once():
     """
     Start self-ping service on first request
     Using before_request with a flag to ensure it only runs once
     """
-    if not hasattr(app, 'self_ping_started'):
+    if not getattr(app, "self_ping_started", False):
         start_self_ping()
         app.self_ping_started = True
 
