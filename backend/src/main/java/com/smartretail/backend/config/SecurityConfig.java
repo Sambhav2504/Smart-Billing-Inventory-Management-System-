@@ -51,7 +51,7 @@ public class SecurityConfig {
                         // This rule now correctly secures the other product endpoints
                         .requestMatchers("/api/products/**", "/api/bills/**").hasAnyRole("MANAGER","OWNER")
 
-                        // --- ADD THIS LINE ---
+                        // Allow managers and owners to send customer emails
                         .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/customers/send-email").hasAnyRole("MANAGER", "OWNER")
 
                         .requestMatchers("/api/customers/**").hasAnyRole("MANAGER", "CASHIER", "OWNER")
@@ -65,7 +65,7 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
 
-                // --- OAUTH2 LOGIN CONFIG ---
+                // OAUTH2 LOGIN CONFIG
                 .oauth2Login(oauth2 -> {
                     oauth2.successHandler(oAuth2SuccessHandler);
                 });
@@ -76,7 +76,12 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(Arrays.asList("https://your-vercel-app.vercel.app", "http://localhost:3000", "http://localhost:5173", "http://localhost:8080"));
+        configuration.setAllowedOrigins(Arrays.asList(
+                "https://smartretailsystem.vercel.app", // Your Vercel domain
+                "http://localhost:3000", 
+                "http://localhost:5173", 
+                "http://localhost:8080"
+        ));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "Accept-Language"));
         configuration.setAllowCredentials(true);
